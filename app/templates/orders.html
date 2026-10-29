@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Orders · Till{% endblock %}
+{% block body %}
+<h1>Orders</h1>
+<p class="lede">Each row is one proposal. Open it to see the ask, the agent’s claim, the listed price, and the PayPal amount.</p>
+{% if paypal_mode == "simulate" %}
+<p class="banner">PayPal is simulated on this machine. Till still waits for a verified webhook before it marks an order complete.</p>
+{% endif %}
+{% if orders %}
+<table>
+  <thead>
+    <tr>
+      <th>When</th>
+      <th>Item</th>
+      <th class="num">Agent total</th>
+      <th class="num">Checked total</th>
+      <th>Approval</th>
+      <th>Result</th>
+      <th>Kind</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for order in orders %}
+    <tr>
+      <td><time datetime="{{ order.created_at }}">{{ order.created_at | replace("T", " ") | replace("+00:00", " UTC") }}</time></td>
+      <td><a href="/orders/{{ order.id }}">{{ order.claimed.title }}</a><br><span class="who">{{ order.sku }}</span></td>
+      <td class="num">{{ order.currency }} {{ order.claimed.total_minor | money }}</td>
+      <td class="num">{{ order.currency }} {{ order.payable_minor | money }}</td>
+      <td>{{ order.approval_status }}</td>
+      <td>
+        {% if order.status == "Complete" %}<span class="badge ok">Complete</span>
+        {% elif order.status == "CaptureSubmitted" %}<span class="badge wait">Capture sent</span>
+        {% elif order.status == "NeedsApproval" %}<span class="badge wait">Needs approval</span>
+        {% elif order.status == "Rejected" %}<span class="badge neutral">Rejected</span>
+        {% elif order.status == "Incident" %}<span class="badge malicious">Incident</span>
+        {% elif order.status == "Blocked" %}<span class="badge neutral">Blocked</span>
+        {% else %}{{ order.status }}{% endif %}
+      </td>
+      <td>
+        {% if order.kind == "malicious" %}<span class="badge malicious">Malicious</span>
+        {% elif order.kind == "policy" %}<span class="badge policy">Policy</span>
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <h2>No orders yet</h2>
+  <p>Run <code>python -m app.demo</code>, then refresh. That writes the honest shoe purchase and the four blocks.</p>
+</div>
+{% endif %}
+{% endblock %}

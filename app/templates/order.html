@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}{{ order.claimed.title }} · Till{% endblock %}
+{% block body %}
+<p class="crumbs"><a href="/orders">Orders</a> / {{ order.id }}</p>
+<h1>{{ order.claimed.title }}</h1>
+<p class="lede">Policy version {{ order.policy_version }} · {{ order.merchant_id }}</p>
+{% if error %}<p class="alert error" role="alert">{{ error }}</p>{% endif %}
+{% if learned == "allow_once" %}
+<p class="alert ok" role="status">The next matching order can go through once. This is not a merchant allowlist.</p>
+{% elif learned == "allow_merchant" %}
+<p class="alert ok" role="status">This merchant is allowlisted. The next order cites this decision.</p>
+{% elif learned == "shipping_toward_cap" %}
+<p class="alert ok" role="status">Shipping counts toward the cap. The next order cites this decision.</p>
+{% endif %}
+
+<section class="facts">
+  <div class="card">
+    <h2>Approval</h2>
+    <p>
+      {% if order.approval_status == "approved" %}<span class="badge ok">Approved</span>
+      {% elif order.approval_status == "pending" %}<span class="badge wait">Pending</span>
+      {% elif order.approval_status == "rejected" %}<span class="badge neutral">Rejected</span>
+      {% elif order.approval_status == "expired" %}<span class="badge malicious">Expired</span>
+      {% else %}<span class="badge neutral">Blocked</span>{% endif %}
+    </p>
+    {% if order.approval_source == "shopper" %}
+    <p>You approved this amount, SKU, quantity, currency, and address.</p>
+    {% elif order.approval_status == "approved" %}
+    <p>Policy cleared this payload. It was not above the ask-me line.</p>
+    {% elif order.approval_status == "pending" %}
+    <p>Bound to USD {{ order.payable_minor | money }}, {{ order.sku }}, quantity {{ order.claimed.quantity }}, {{ order.currency }}, {{ order.address }}.</p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h2>Success</h2>
+    {% if order.success %}
+    <p><span class="badge ok">Complete</span></p>
+    <p>A verified capture webhook matched the currency and amount.</p>
+    {% elif order.status == "CaptureSubmitted" %}
+    <p><span class="badge wait">Not yet</span></p>
+    <p>Capture was sent. An order id alone is not completion.</p>
+    {% else %}
+    <p><span class="badge neutral">Not complete</span></p>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h2>Where it failed</h2>
+    {% if order.problem %}<p><span class="badge wait">{{ order.problem_label }}</span></p>{% endif %}
+    <p>{{ order.where }}</p>
+  </div>
+  <div class="card">
+    <h2>Malicious or policy</h2>
+    {% if order.kind == "malicious" %}
+    <p><span class="badge malicious">Malicious</span></p>
+    <p>A changed price, swapped item, changed quantity, edited approval, repeated charge, or webhook mismatch.</p>
+    {% elif order.kind == "policy" %}
+    <p><span class="badge policy">Policy</span></p>
+    <p>Over a cap, or a poor fit for what the shopper asked.</p>
+    {% else %}
+    <p><span class="badge ok">Neither</span></p>
+    <p>This was not marked as an attack or a policy block.</p>
+    {% endif %}
+  </div>
+</section>
+
+<h2>Four views</h2>
+<div class="views">
+  <section class="view">
+    <h3>Ask</h3>
+    <p>{{ order.policy.raw }}</p>
+    <dl>
+      <dt>Category</dt><dd>{{ (order.policy.category or "—") | replace("_", " ") }}</dd>
+      <dt>Size</dt><dd>{{ order.policy.size or "—" }}</dd>
+      <dt>Brand</dt><dd>{{ order.policy.brand or "Any" }}</dd>
+      <dt>Exclusions</dt><dd>{{ order.policy.exclusions | join(", ") if order.policy.exclusions else "—" }}</dd>
+      <dt>Per purchase</dt><dd class="num">{{ order.policy.currency }} {{ order.policy.max_purchase_minor | money }}</dd>
+      <dt>Per day</dt><dd class="num">{{ order.policy.currency }} {{ order.policy.daily_max_minor | money }}</dd>
+      <dt>Per category</dt><dd class="num">{{ order.policy.currency }} {{ order.policy.category_max_minor | money }}</dd>
+      <dt>Ask me above</dt><dd class="num">{{ order.policy.currency }} {{ order.policy.ask_above_minor | money }}</dd>
+    </dl>
+  </section>
+  <section class="view">
+    <h3>Agent claim</h3>
+    <dl>
+      <dt>Title</dt><dd>{{ order.claimed.title }}</dd>
+      <dt>SKU</dt><dd>{{ order.claimed.sku }}</dd>
+      <dt>Quantity</dt><dd>{{ order.claimed.quantity }}</dd>
+      <dt>Item</dt><dd class="num">{{ order.claimed.currency }} {{ order.item_minor | money }}</dd>
+      <dt>Tax</dt><dd class="num">{{ order.claimed.currency }} {{ order.tax_minor | money }}</dd>
+      <dt>Shipping</dt><dd class="num">{{ order.claimed.currency }} {{ order.shipping_minor | money }}</dd>
+      <dt>Add-ons</dt><dd class="num">{{ order.claimed.currency }} {{ order.addons_minor | money }}</dd>
+      <dt>Total</dt><dd class="num">{{ order.claimed.currency }} {{ order.claimed.total_minor | money }}</dd>
+      <dt>Address</dt><dd>{{ order.address }}</dd>
+    </dl>
+  </section>
+  <section class="view">
+    <h3>Listed price</h3>
+    {% if order.listed %}
+    <dl>
+      <dt>Title</dt><dd>{{ order.listed.title }}</dd>
+      <dt>SKU</dt><dd>{{ order.listed.sku }}</dd>
+      <dt>Unit price</dt><dd class="num">{{ order.listed.currency }} {{ order.listed.unit_price_minor | money }}</dd>
+      <dt>Tax</dt><dd class="num">{{ order.listed.currency }} {{ order.listed.tax_minor | money }}</dd>
+      <dt>Shipping</dt><dd class="num">{{ order.listed.currency }} {{ order.listed.shipping_minor | money }}</dd>
+      <dt>Add-ons</dt><dd class="num">{{ order.listed.currency }} {{ order.listed.addons_minor | money }}</dd>
+      <dt>Category</dt><dd>{{ order.listed.category | replace("_", " ") }}</dd>
+      <dt>Size</dt><dd>{{ order.listed.size or "—" }}</dd>
+    </dl>
+    {% else %}
+    <p>No catalog row. Till did not call PayPal.</p>
+    {% endif %}
+  </section>
+  <section class="view">
+    <h3>PayPal amount</h3>
+    {% if order.paypal %}
+    <dl>
+      <dt>Total</dt><dd class="num">{{ order.paypal.currency }} {{ order.paypal.total_minor | money }}</dd>
+      <dt>Currency</dt><dd>{{ order.paypal.currency }}</dd>
+      <dt>SKU</dt><dd>{{ order.paypal.sku or "—" }}</dd>
+      <dt>Quantity</dt><dd>{{ order.paypal.quantity if order.paypal.quantity is not none else "—" }}</dd>
+      <dt>Unit</dt><dd class="num">{% if order.paypal.unit_price_minor is not none %}{{ order.paypal.unit_currency }} {{ order.paypal.unit_price_minor | money }}{% else %}—{% endif %}</dd>
+      <dt>Order id</dt><dd>{{ order.paypal_order_id or "—" }}</dd>
+    </dl>
+    {% else %}
+    <p>Not sent. Till did not create a PayPal order.</p>
+    {% endif %}
+  </section>
+</div>
+
+<h2>Total split</h2>
+<div class="split-grid">
+  <section class="card">
+    <h3>Agent claim</h3>
+    <dl>
+      <dt>Item</dt><dd class="num">{{ order.currency }} {{ order.item_minor | money }}</dd>
+      <dt>Tax</dt><dd class="num">{{ order.currency }} {{ order.tax_minor | money }}</dd>
+      <dt>Shipping</dt><dd class="num">{{ order.currency }} {{ order.shipping_minor | money }}</dd>
+      <dt>Add-ons</dt><dd class="num">{{ order.currency }} {{ order.addons_minor | money }}</dd>
+      <dt>Total</dt><dd class="num">{{ order.currency }} {{ order.claimed.total_minor | money }}</dd>
+    </dl>
+  </section>
+  <section class="card">
+    <h3>Held against the caps</h3>
+    <p>Till uses the full total: quantity times unit price, plus tax, shipping, and add-ons.</p>
+    <p class="num">{{ order.currency }} {{ order.payable_minor | money }}</p>
+  </section>
+</div>
+
+{% if order.agent_fields_ignored %}
+<p class="lede">The agent sent approved, user_id, or amount. Those fields grant nothing.</p>
+{% endif %}
+{% if order.citation %}<p>{{ order.citation }}</p>{% endif %}
+
+{% if order.status == "NeedsApproval" %}
+<h2>Decide</h2>
+<div class="actions">
+  <form method="post" action="/orders/{{ order.id }}/approve">
+    <button class="primary" type="submit">Approve this order</button>
+  </form>
+  <form method="post" action="/orders/{{ order.id }}/reject">
+    <button type="submit">Reject this order</button>
+  </form>
+</div>
+{% endif %}
+
+<h2>Remember for later</h2>
+<p class="lede">Only “Allow this merchant” is an allowlist. The next order cites this decision. Till does not train a model.</p>
+<div class="actions">
+  <form method="post" action="/orders/{{ order.id }}/learn">
+    <input type="hidden" name="kind" value="allow_once">
+    <button type="submit">Allow this order once</button>
+  </form>
+  <form method="post" action="/orders/{{ order.id }}/learn">
+    <input type="hidden" name="kind" value="allow_merchant">
+    <button type="submit">Allow this merchant from now on</button>
+  </form>
+  <form method="post" action="/orders/{{ order.id }}/learn">
+    <input type="hidden" name="kind" value="shipping_toward_cap">
+    <button type="submit">Count shipping toward the cap</button>
+  </form>
+</div>
+
+{% if order.reasons %}
+<h2>Checks</h2>
+<ul>
+  {% for reason in order.reasons %}
+  <li>{{ reason.message }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if order.timeline %}
+<h2>What Till did</h2>
+<ol class="timeline">
+  {% for event in order.timeline %}
+  <li><time datetime="{{ event.created_at }}">{{ event.created_at | replace("T", " ") | replace("+00:00", " UTC") }}</time> — {{ event.payload.message }}</li>
+  {% endfor %}
+</ol>
+{% endif %}
+{% endblock %}

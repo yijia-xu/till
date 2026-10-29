@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Till{% endblock %}</title>
+  <style>
+    :root {
+      --paper: #f3efe6;
+      --ink: #1c1915;
+      --muted: #5c564c;
+      --line: #ddd4c4;
+      --card: #fffdf8;
+      --green: #0c6a43;
+      --green-bg: #e5f4ec;
+      --red: #8d2c2c;
+      --red-bg: #f8e7e3;
+      --amber: #7a4e0d;
+      --amber-bg: #f8efd4;
+      --blue: #1d4e7a;
+      --blue-bg: #e6eef6;
+      --focus: #0c6a43;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 16px/1.45 "Avenir Next", "Segoe UI", sans-serif;
+    }
+    a { color: var(--green); }
+    a:hover { color: var(--ink); }
+    .skip {
+      position: absolute;
+      left: 8px;
+      top: -40px;
+      background: var(--ink);
+      color: white;
+      padding: 8px 12px;
+    }
+    .skip:focus { top: 8px; }
+    header.bar {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      min-height: 64px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--card);
+    }
+    .brand {
+      font-family: Palatino, "Iowan Old Style", Georgia, serif;
+      font-size: 22px;
+      letter-spacing: 0.04em;
+      color: var(--ink);
+      text-decoration: none;
+    }
+    nav { display: flex; gap: 16px; }
+    nav a { color: var(--ink); text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+    .spacer { flex: 1; }
+    .who { color: var(--muted); font-size: 14px; }
+    main { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
+    h1, h2, h3 {
+      font-family: Palatino, "Iowan Old Style", Georgia, serif;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    h1 { font-size: 40px; line-height: 1.1; margin: 0 0 8px; }
+    h2 { font-size: 22px; margin: 28px 0 8px; }
+    h3 { font-size: 16px; margin: 0 0 8px; }
+    p { margin: 0 0 12px; }
+    .lede { color: var(--muted); max-width: 62ch; }
+    .banner, .alert {
+      border: 1px solid var(--line);
+      background: var(--blue-bg);
+      color: var(--blue);
+      padding: 12px 14px;
+      margin: 16px 0;
+    }
+    .alert.error { background: var(--red-bg); color: var(--red); border-color: #e3c4be; }
+    .alert.ok { background: var(--green-bg); color: var(--green); border-color: #c9e4d4; }
+    table { width: 100%; border-collapse: collapse; background: var(--card); }
+    th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    td a { color: var(--ink); font-weight: 600; }
+    .num { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; text-align: right; }
+    th.num { text-align: right; }
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    .badge.malicious { background: var(--red-bg); color: var(--red); }
+    .badge.policy { background: var(--amber-bg); color: var(--amber); }
+    .badge.ok { background: var(--green-bg); color: var(--green); }
+    .badge.wait { background: var(--blue-bg); color: var(--blue); }
+    .badge.neutral { background: #eeeae2; color: var(--muted); }
+    .views {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 8px;
+    }
+    .view, .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      padding: 14px;
+      min-width: 0;
+    }
+    .view h3 {
+      color: var(--muted);
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    dl { margin: 0; }
+    .view dt, .split dt { color: var(--muted); font-size: 13px; }
+    .view dd, .split dd { margin: 0 0 8px; }
+    .split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    button, .button {
+      min-height: 44px;
+      padding: 0 16px;
+      border-radius: 6px;
+      border: 1px solid var(--ink);
+      background: transparent;
+      color: var(--ink);
+      font: inherit;
+      cursor: pointer;
+    }
+    button.primary { background: var(--green); border-color: var(--green); color: white; }
+    button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+    label { display: block; font-size: 14px; margin: 14px 0 4px; }
+    input, textarea {
+      width: 100%;
+      max-width: 460px;
+      min-height: 44px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      background: white;
+      font: inherit;
+      color: var(--ink);
+    }
+    textarea { min-height: 88px; }
+    form.stack { max-width: 520px; }
+    ol.timeline { padding-left: 18px; }
+    ol.timeline li { margin: 6px 0; }
+    .crumbs { color: var(--muted); font-size: 14px; }
+    .empty { background: var(--card); border: 1px solid var(--line); padding: 24px; }
+    @media (max-width: 900px) {
+      .views, .facts, .split-grid { grid-template-columns: 1fr 1fr; }
+      h1 { font-size: 32px; }
+    }
+    @media (max-width: 640px) {
+      .views, .facts, .split-grid { grid-template-columns: 1fr; }
+      header.bar { flex-wrap: wrap; padding: 12px 16px; }
+      main { padding: 24px 16px 48px; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+  <header class="bar">
+    <a class="brand" href="/orders">Till</a>
+    {% if signed_in %}
+    <nav>
+      <a href="/orders">Orders</a>
+      <a href="/policy">Policy</a>
+    </nav>
+    <div class="spacer"></div>
+    <span class="who">{{ email }}</span>
+    <form method="post" action="/logout">
+      <button type="submit">Log out</button>
+    </form>
+    {% endif %}
+  </header>
+  <main id="content">
+    {% block body %}{% endblock %}
+  </main>
+</body>
+</html>

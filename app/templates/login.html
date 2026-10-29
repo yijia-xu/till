@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Till{% endblock %}
+{% block body %}
+<h1>Sign in</h1>
+<p class="lede">A shopper approves or rejects. The shopping agent cannot.</p>
+{% if error %}<p class="alert error" role="alert">{{ error }}</p>{% endif %}
+<form class="stack" method="post" action="/login">
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" autocomplete="username" required value="{{ prefill }}">
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
+  <div class="actions"><button class="primary" type="submit">Sign in</button></div>
+</form>
+<p class="lede">Local demo shopper: demo@till.local / demo</p>
+{% endblock %}
