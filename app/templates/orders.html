@@ -12,6 +12,8 @@
 
 {% if paypal_mode == "simulate" %}
 <p class="banner" role="status"><strong>Simulation mode.</strong> Till uses a local fake PayPal client; no real payment is made.</p>
+{% elif paypal_mode == "sandbox" %}
+<p class="banner" role="status"><strong>PayPal Sandbox connected.</strong> Checkout uses PayPal test accounts and does not move live money.</p>
 {% endif %}
 {% if not needs_model_configured %}
 <p class="alert" role="status"><strong>AI needs check is not configured.</strong> Proposals that need a needs judgment will wait for your review. Add <code>NEEDS_MODEL_API_KEY</code> to <code>.env</code> to enable it.</p>

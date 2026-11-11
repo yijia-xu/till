@@ -11,6 +11,7 @@
 </div>
 
 {% if error %}<p class="alert error" role="alert">{{ error }}</p>{% endif %}
+{% if agent_reason %}<p class="banner" role="status"><strong>Shopping agent:</strong> {{ agent_reason }}</p>{% endif %}
 {% if learned == "allow_once" %}
 <p class="alert ok" role="status">A one-time rule was saved for the next identical proposal. This order still needs its own approval.</p>
 {% elif learned == "allow_merchant" %}

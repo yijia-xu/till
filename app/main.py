@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
@@ -13,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 
 from .checkout import (
     CheckoutError,
+    active_policy,
     agent_view,
     apply_webhook,
     approve_order,
@@ -33,6 +35,7 @@ from .db import SHOPPER_EMAIL, init_db, utcnow, verify_password
 from .money import dollars_to_minor, from_minor
 from .needs import build_needs, parse_sentence
 from .paypal import build_paypal, fetch_paypal_cert, verify_webhook_signature
+from .shopping_agent import ShoppingAgentUnavailable, build_shopping_agent
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 TEMPLATES.env.filters["money"] = lambda value: "—" if value is None else from_minor(int(value))
@@ -41,6 +44,34 @@ TEMPLATES.env.filters["money"] = lambda value: "—" if value is None else from_
 def render(request: Request, name: str, context: dict, status_code: int = 200):
     body = {"request": request, **context}
     return TEMPLATES.TemplateResponse(request, name, body, status_code=status_code)
+
+
+def _policy_from_form(form) -> tuple[str, dict]:
+    sentence = str(form.get("sentence") or "").strip()
+    if not sentence:
+        raise ValueError("Write what you would like the shopping agent to find.")
+    parsed = parse_sentence(sentence)
+    rules = {
+        "category": parsed.category,
+        "size": parsed.size,
+        "brand": parsed.brand,
+        "exclusions": parsed.exclusions,
+        "max_purchase_minor": dollars_to_minor(str(form.get("max_purchase") or ""))
+        if str(form.get("max_purchase") or "").strip()
+        else parsed.max_purchase_minor,
+        "daily_max_minor": dollars_to_minor(str(form.get("daily_max") or "")),
+        "category_max_minor": dollars_to_minor(str(form.get("category_max") or "")),
+        "ask_above_minor": dollars_to_minor(str(form.get("ask_above") or "")),
+        "currency": "USD",
+        "no_subscription": any("subscription" in item for item in parsed.exclusions),
+        "include_shipping": True,
+        "shipping_counts_toward_cap": True,
+        "intent_quantity": 1,
+        "shipping_address": str(form.get("shipping_address") or "").strip(),
+    }
+    if rules["max_purchase_minor"] is None:
+        raise ValueError("Set a per-order spending cap.")
+    return sentence, rules
 
 PROBLEM_LABELS = {
     "budget": "Budget",
@@ -70,6 +101,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.paypal_webhook_id,
     )
     app.state.needs = build_needs(settings.needs_model_api_key, settings.needs_model_url, settings.needs_model_name)
+    app.state.shopping_agent = build_shopping_agent(
+        settings.needs_model_api_key, settings.needs_model_url, settings.needs_model_name
+    )
     app.state.fetch_cert = fetch_paypal_cert
 
     @app.get("/health")
@@ -239,7 +273,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             conn.close()
 
     @app.get("/orders/{order_id}")
-    def order_page(order_id: str, request: Request, error: str = "", learned: str = ""):
+    def order_page(order_id: str, request: Request, error: str = "", learned: str = "", agent: str = ""):
         conn = open_db(settings.db_path)
         try:
             shopper = _shopper(conn, request)
@@ -258,6 +292,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "order": view,
                     "error": error,
                     "learned": learned,
+                    "agent_reason": agent,
                     "email": SHOPPER_EMAIL,
                     "signed_in": True,
                     "paypal_mode": app.state.paypal.mode,
@@ -301,6 +336,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "version": row["version"] if row else 0,
                     "error": error,
                     "saved": saved,
+                    "shopping_ai_configured": bool(settings.needs_model_api_key),
                     "email": SHOPPER_EMAIL,
                     "signed_in": True,
                 },
@@ -311,35 +347,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/policy")
     async def update_policy(request: Request):
         form = await request.form()
-        sentence = str(form.get("sentence") or "").strip()
-        if not sentence:
-            return RedirectResponse("/policy?error=" + quote("Write the shopper's sentence."), status_code=303)
         try:
-            parsed = parse_sentence(sentence)
-            rules = {
-                "category": parsed.category,
-                "size": parsed.size,
-                "brand": parsed.brand,
-                "exclusions": parsed.exclusions,
-                "max_purchase_minor": dollars_to_minor(str(form.get("max_purchase") or ""))
-                if str(form.get("max_purchase") or "").strip()
-                else parsed.max_purchase_minor,
-                "daily_max_minor": dollars_to_minor(str(form.get("daily_max") or "")),
-                "category_max_minor": dollars_to_minor(str(form.get("category_max") or "")),
-                "ask_above_minor": dollars_to_minor(str(form.get("ask_above") or "")),
-                "currency": "USD",
-                "no_subscription": any("subscription" in item for item in parsed.exclusions),
-                "include_shipping": True,
-                "shipping_counts_toward_cap": True,
-                "intent_quantity": 1,
-            }
-            if rules["max_purchase_minor"] is None:
-                raise ValueError("missing cap")
-        except (ValueError, ArithmeticError):
-            return RedirectResponse(
-                "/policy?error=" + quote("Use dollar amounts like 80.00, and name a cap or say at most $80."),
-                status_code=303,
-            )
+            sentence, rules = _policy_from_form(form)
+        except (ValueError, ArithmeticError) as exc:
+            return RedirectResponse("/policy?error=" + quote(str(exc)), status_code=303)
         conn = open_db(settings.db_path)
         try:
             if _shopper(conn, request) is None:
@@ -348,6 +359,71 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             conn.close()
         return RedirectResponse("/policy?saved=1", status_code=303)
+
+    @app.post("/shopping/agent")
+    async def shop_with_agent(request: Request):
+        form = await request.form()
+        try:
+            sentence, rules = _policy_from_form(form)
+        except (ValueError, ArithmeticError) as exc:
+            return RedirectResponse("/policy?error=" + quote(str(exc)), status_code=303)
+        conn = open_db(settings.db_path)
+        try:
+            shopper = _shopper(conn, request)
+            if shopper is None:
+                return RedirectResponse("/login", status_code=303)
+            save_policy(conn, sentence, rules, intent_ttl_seconds=settings.intent_ttl_seconds)
+            if not rules["shipping_address"]:
+                return RedirectResponse(
+                    "/policy?error=" + quote("Add a delivery address before asking the shopping agent to find an item."),
+                    status_code=303,
+                )
+            _, policy = active_policy(conn)
+            listings = [dict(row) for row in conn.execute("SELECT * FROM catalog ORDER BY sku").fetchall()]
+            try:
+                listing, reason = app.state.shopping_agent.choose(sentence, policy, listings)
+            except ShoppingAgentUnavailable as exc:
+                return RedirectResponse("/policy?error=" + quote(str(exc)), status_code=303)
+            if listing is None:
+                return RedirectResponse(
+                    "/policy?error=" + quote("The AI could not find a suitable item in Till's demo catalog."),
+                    status_code=303,
+                )
+            quantity = int(policy.get("intent_quantity") or 1)
+            total = (
+                int(listing["unit_price_minor"]) * quantity
+                + int(listing["tax_minor"])
+                + int(listing["shipping_minor"])
+                + int(listing["addons_minor"])
+            )
+            order = submit_proposal(
+                conn,
+                app.state.paypal,
+                app.state.needs,
+                {
+                    "idempotency_key": "ai_" + uuid.uuid4().hex,
+                    "merchant_id": listing["merchant_id"],
+                    "sku": listing["sku"],
+                    "title": listing["title"],
+                    "quantity": quantity,
+                    "unit_price_minor": int(listing["unit_price_minor"]),
+                    "tax_minor": int(listing["tax_minor"]),
+                    "shipping_minor": int(listing["shipping_minor"]),
+                    "addons_minor": int(listing["addons_minor"]),
+                    "total_minor": total,
+                    "currency": listing["currency"],
+                    "address": policy["shipping_address"],
+                },
+                shopper_id=shopper,
+                window_seconds=settings.duplicate_window_seconds,
+                approval_ttl_seconds=settings.approval_ttl_seconds,
+                public_base_url=settings.public_base_url,
+            )
+            return RedirectResponse(f"/orders/{order['id']}?agent={quote(reason)}", status_code=303)
+        except CheckoutError as exc:
+            return RedirectResponse("/policy?error=" + quote(exc.detail), status_code=303)
+        finally:
+            conn.close()
 
     @app.post("/policy/merchants/{merchant_id}/remove")
     def remove_merchant_rule(merchant_id: str, request: Request):

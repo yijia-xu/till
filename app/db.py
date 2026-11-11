@@ -55,6 +55,7 @@ DEFAULT_POLICY = {
     "allowed_merchants": [],
     "rule_citations": [],
     "intent_quantity": 1,
+    "shipping_address": "",
 }
 
 

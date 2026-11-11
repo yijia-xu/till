@@ -19,16 +19,17 @@ Open http://127.0.0.1:8000 and sign in as `demo@till.local` / `demo`.
 
 ## First time using Till
 
-Till is a payment safety desk for a shopping agent. It is not a store and it does not find or buy products by itself. The agent sends a proposed order to Till; Till checks the shopper's rules and decides whether to allow it, block it, or ask the shopper to review it.
+Till is a payment safety desk for a shopping agent. Its AI can match a request against Till's demo catalog, then sends a proposed order through Till's checks. Till decides whether to allow it, block it, or ask the shopper to review it. It does not search the open web or connect to merchant inventory feeds.
 
-1. Open **Shopping** and describe the item the agent may look for. Set the per-order, per-day, category, and ask-above amounts. The caps are hard limits; ask-above only adds a review step below those limits.
-2. Connect an agent using the API token and submit proposals to `POST /api/orders`. The agent can read the decision but has no PayPal credentials and cannot approve or capture a payment.
-3. Open **Orders** to review proposals. Open an order to see the shopper request, agent proposal, catalog snapshot, and PayPal order. Approve or decline proposals that need your review.
-4. For a real sandbox payment, continue to PayPal and sign in with a sandbox personal test account to authorize it. Till captures only after the buyer returns and PayPal confirms authorization. A completed payment is confirmed by a verified webhook.
+1. Open **Shopping**, describe the item, set the per-order, per-day, category, and ask-above amounts, and enter a delivery address. The caps are hard limits; ask-above only adds a review step below those limits.
+2. Add an OpenAI API key as `NEEDS_MODEL_API_KEY` in `.env`. **Find a match with AI** asks the shopping agent to choose from Till's local demo catalog. It cannot invent products or prices. The same key powers the separate needs check during checkout.
+3. For an external agent, use the API token to submit proposals to `POST /api/orders`. The agent can read the decision but has no PayPal credentials and cannot approve or capture a payment.
+4. Open **Orders** to review proposals. Open an order to see the shopper request, agent proposal, catalog snapshot, and PayPal order. Approve or decline proposals that need your review.
+5. For a sandbox payment, continue to PayPal and sign in with a sandbox personal test account to authorize it. Till captures only after the buyer returns and PayPal confirms authorization. A completed payment is confirmed by a verified webhook.
 
-With `PAYPAL_MODE=simulate`, actions use the local simulator and do not charge a PayPal account. If `NEEDS_MODEL_API_KEY` is empty, the model-based product match waits for a person instead of making an automatic judgment.
+With `PAYPAL_MODE=simulate`, actions use the local simulator and do not charge a PayPal account. If `NEEDS_MODEL_API_KEY` is empty, AI matching is disabled and an order that needs a model judgment waits for a person.
 
-`python -m app.demo` uses a fake PayPal client. It does not call PayPal. Needs judgment does call an LLM: set `NEEDS_MODEL_API_KEY` in `.env`. The model says whether the listing fits the shopper's sentence. It cannot turn a hard block into an allow. If the key is missing or the model is down, that check waits for a person. The honest order is a $74 pair of running shoes, size 9, under the $80 cap, with no subscription. Till would capture it, then a local verified webhook marks it complete. Changed price, swapped item, changed quantity, and a second charge for the same shoes are blocked.
+`python -m app.demo` uses a fake PayPal client. It does not call PayPal. `NEEDS_MODEL_API_KEY` is used by both the AI catalog matcher and the needs check. The model says whether a listing fits the shopper's sentence. It cannot turn a hard block into an allow. If the key is missing or the model is down, that check waits for a person. The honest order is a $74 pair of running shoes, size 9, under the $80 cap, with no subscription. Till would capture it, then a local verified webhook marks it complete. Changed price, swapped item, changed quantity, and a second charge for the same shoes are blocked.
 
 The agent token in `.env.example` is `demo-agent-token`. The agent sends `POST /api/orders` and reads `GET /api/orders/{id}`. It has no PayPal credentials. Fields named `approved`, `user_id`, and `amount` grant nothing.
 

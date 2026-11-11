@@ -29,7 +29,7 @@
     <div class="chat-compose">
       <label for="sentence">Your shopping request</label>
       <textarea id="sentence" name="sentence" rows="4" required placeholder="Tell Till what to look for and what to avoid…">{{ rules.raw }}</textarea>
-      <p class="field-help">This saves your request as the shopping intent. ChatGPT does not currently power this setup conversation.</p>
+      <p class="field-help">Till saves this as your shopping intent. The AI agent can only choose from Till’s demo catalog; it cannot invent prices or authorize a payment.</p>
     </div>
 
     <section class="limits-card" aria-labelledby="limits-heading">
@@ -54,7 +54,16 @@
           <input id="ask_above" name="ask_above" type="number" min="0.01" step="0.01" inputmode="decimal" required value="{{ rules.ask_above_minor | money }}">
         </div>
       </div>
-      <div class="actions"><button class="primary" type="submit">Save shopping request</button></div>
+      <div class="field">
+        <label for="shipping_address">Delivery address</label>
+        <input id="shipping_address" name="shipping_address" autocomplete="street-address" value="{{ rules.shipping_address or '' }}" placeholder="Enter the address to use at checkout">
+        <span class="field-help">Till uses this address only for a shopping proposal. Confirm it on PayPal before authorizing payment.</span>
+      </div>
+      <div class="actions">
+        <button class="primary" type="submit">Save shopping request</button>
+        <button type="submit" formaction="/shopping/agent" {% if not shopping_ai_configured %}disabled aria-describedby="ai-setup-note"{% endif %}>Find a match with AI</button>
+      </div>
+      {% if not shopping_ai_configured %}<p id="ai-setup-note" class="field-help">Add <code>NEEDS_MODEL_API_KEY</code> to <code>.env</code> to enable AI shopping and order needs checks.</p>{% endif %}
     </section>
   </form>
 </section>
