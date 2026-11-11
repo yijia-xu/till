@@ -1,32 +1,62 @@
 {% extends "base.html" %}
-{% block title %}Policy · Till{% endblock %}
+{% block title %}Shopping · Till{% endblock %}
 {% block body %}
-<h1>Policy</h1>
-<p class="lede">Version {{ version }}. Saving freezes the sentence into category, size, brand, and exclusions. Older orders keep the version that judged them.</p>
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Shopping preferences</p>
+    <h1>Tell Till what you need</h1>
+    <p class="lede">Describe your request in your own words. Then confirm the payment limits Till must enforce.</p>
+  </div>
+</div>
+
 {% if error %}<p class="alert error" role="alert">{{ error }}</p>{% endif %}
-{% if saved %}<p class="alert ok" role="status">Policy saved. New orders use this version.</p>{% endif %}
-<form class="stack" method="post" action="/policy">
-  <label for="sentence">What you want</label>
-  <textarea id="sentence" name="sentence" required>{{ rules.raw }}</textarea>
-  <label for="max_purchase">Per purchase cap (USD)</label>
-  <input id="max_purchase" name="max_purchase" inputmode="decimal" required value="{{ rules.max_purchase_minor | money }}">
-  <label for="daily_max">Per day cap (USD)</label>
-  <input id="daily_max" name="daily_max" inputmode="decimal" required value="{{ rules.daily_max_minor | money }}">
-  <label for="category_max">Per category cap (USD)</label>
-  <input id="category_max" name="category_max" inputmode="decimal" required value="{{ rules.category_max_minor | money }}">
-  <label for="ask_above">Ask me above (USD)</label>
-  <input id="ask_above" name="ask_above" inputmode="decimal" required value="{{ rules.ask_above_minor | money }}">
-  <div class="actions"><button class="primary" type="submit">Save policy</button></div>
-</form>
-<section class="card" style="margin-top: 24px; max-width: 520px;">
-  <h2>Frozen from the sentence</h2>
-  <dl>
-    <dt>Category</dt><dd>{{ (rules.category or "—") | replace("_", " ") }}</dd>
-    <dt>Size</dt><dd>{{ rules.size or "—" }}</dd>
-    <dt>Brand</dt><dd>{{ rules.brand or "Any" }}</dd>
-    <dt>Exclusions</dt><dd>{{ rules.exclusions | join(", ") if rules.exclusions else "—" }}</dd>
-    <dt>Merchant allowlist</dt><dd>{{ rules.allowed_merchants | join(", ") if rules.allowed_merchants else "None" }}</dd>
-  </dl>
-  <p class="lede">A merchant allowlist and a shipping rule carry forward when you save a new sentence. Caps and the frozen need come from this form.</p>
+{% if saved %}<p class="alert ok" role="status">Rules saved. New proposals will use version {{ version }}.</p>{% endif %}
+{% if request.query_params.get("merchant_removed") %}<p class="alert ok" role="status">Merchant exception removed. New proposals use the updated rules.</p>{% endif %}
+
+<section class="chat-shell" aria-label="Describe shopping needs">
+  <div class="chat-thread" aria-live="polite">
+    <div class="chat-message assistant">
+      <p><strong>Till</strong></p>
+      <p>What would you like your shopping agent to find? You can mention the item, size, brand, and anything to avoid.</p>
+      <p class="field-help">For example: “Find black running shoes, size 9, no subscription or add-ons.”</p>
+    </div>
+    {% if rules.raw %}
+    <div class="chat-message shopper"><p>{{ rules.raw }}</p></div>
+    {% endif %}
+  </div>
+
+  <form method="post" action="/policy">
+    <div class="chat-compose">
+      <label for="sentence">Your shopping request</label>
+      <textarea id="sentence" name="sentence" rows="4" required placeholder="Tell Till what to look for and what to avoid…">{{ rules.raw }}</textarea>
+      <p class="field-help">This saves your request as the shopping intent. ChatGPT does not currently power this setup conversation.</p>
+    </div>
+
+    <section class="limits-card" aria-labelledby="limits-heading">
+      <p class="eyebrow">Payment guardrails</p>
+      <h2 id="limits-heading">How much may Till spend?</h2>
+      <p class="field-help">These amounts are enforced by Till. A cap blocks an order above it; “ask me above” pauses an order for your review below the caps. Shipping and add-ons count toward every cap.</p>
+      <div class="limits-grid">
+        <div class="field">
+          <label for="max_purchase">Per order hard cap (USD)</label>
+          <input id="max_purchase" name="max_purchase" type="number" min="0.01" step="0.01" inputmode="decimal" required value="{{ rules.max_purchase_minor | money }}">
+        </div>
+        <div class="field">
+          <label for="daily_max">Per day hard cap (USD)</label>
+          <input id="daily_max" name="daily_max" type="number" min="0.01" step="0.01" inputmode="decimal" required value="{{ rules.daily_max_minor | money }}">
+        </div>
+        <div class="field">
+          <label for="category_max">Per category per day (USD)</label>
+          <input id="category_max" name="category_max" type="number" min="0.01" step="0.01" inputmode="decimal" required value="{{ rules.category_max_minor | money }}">
+        </div>
+        <div class="field">
+          <label for="ask_above">Ask me above (USD)</label>
+          <input id="ask_above" name="ask_above" type="number" min="0.01" step="0.01" inputmode="decimal" required value="{{ rules.ask_above_minor | money }}">
+        </div>
+      </div>
+      <div class="actions"><button class="primary" type="submit">Save shopping request</button></div>
+    </section>
+  </form>
 </section>
+
 {% endblock %}

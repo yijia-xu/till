@@ -22,6 +22,7 @@ from .checkout import (
     list_orders,
     open_db,
     present_order,
+    remove_allowed_merchant,
     reject_order,
     resume_paypal_approval,
     save_policy,
@@ -229,6 +230,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 {
                     "orders": list_orders(conn),
                     "paypal_mode": app.state.paypal.mode,
+                    "needs_model_configured": bool(settings.needs_model_api_key),
                     "email": SHOPPER_EMAIL,
                     "signed_in": True,
                 },
@@ -346,6 +348,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             conn.close()
         return RedirectResponse("/policy?saved=1", status_code=303)
+
+    @app.post("/policy/merchants/{merchant_id}/remove")
+    def remove_merchant_rule(merchant_id: str, request: Request):
+        conn = open_db(settings.db_path)
+        try:
+            if _shopper(conn, request) is None:
+                return RedirectResponse("/login", status_code=303)
+            removed = remove_allowed_merchant(
+                conn,
+                merchant_id,
+                intent_ttl_seconds=settings.intent_ttl_seconds,
+            )
+        finally:
+            conn.close()
+        suffix = "merchant_removed=1" if removed else ""
+        return RedirectResponse(f"/policy?{suffix}", status_code=303)
 
     def _shopper_action(request: Request, order_id: str, action: str, kind: str = ""):
         conn = open_db(settings.db_path)

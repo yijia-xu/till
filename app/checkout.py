@@ -869,6 +869,22 @@ def save_policy(conn, sentence: str, rules: dict, *, intent_ttl_seconds: int) ->
     return rules
 
 
+def remove_allowed_merchant(conn, merchant_id: str, *, intent_ttl_seconds: int) -> bool:
+    _, rules = active_policy(conn)
+    allowed = list(rules.get("allowed_merchants") or [])
+    if merchant_id not in allowed:
+        return False
+    rules["allowed_merchants"] = [item for item in allowed if item != merchant_id]
+    rules["rule_citations"] = [
+        item
+        for item in (rules.get("rule_citations") or [])
+        if not (item.get("kind") == "allow_merchant" and item.get("merchant_id") == merchant_id)
+    ]
+    save_policy(conn, rules.get("raw") or "", rules, intent_ttl_seconds=intent_ttl_seconds)
+    audit(conn, None, "merchant_removed", "The shopper removed a merchant ask-above exception.", merchant_id=merchant_id)
+    return True
+
+
 def apply_webhook(conn, paypal, event: dict, *, verified: bool) -> dict:
     if not verified:
         raise CheckoutError(400, "Unverified webhook.")

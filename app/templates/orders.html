@@ -1,55 +1,94 @@
 {% extends "base.html" %}
 {% block title %}Orders · Till{% endblock %}
 {% block body %}
-<h1>Orders</h1>
-<p class="lede">Each row is one proposal. Open it to see the ask, the agent’s claim, the listed price, and the PayPal amount.</p>
-{% if paypal_mode == "simulate" %}
-<p class="banner">PayPal is simulated on this machine. Till still waits for a verified webhook before it marks an order complete.</p>
-{% endif %}
-{% if orders %}
-<table>
-  <thead>
-    <tr>
-      <th>When</th>
-      <th>Item</th>
-      <th class="num">Agent total</th>
-      <th class="num">Checked total</th>
-      <th>Approval</th>
-      <th>Result</th>
-      <th>Kind</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for order in orders %}
-    <tr>
-      <td><time datetime="{{ order.created_at }}">{{ order.created_at | replace("T", " ") | replace("+00:00", " UTC") }}</time></td>
-      <td><a href="/orders/{{ order.id }}">{{ order.claimed.title }}</a><br><span class="who">{{ order.sku }}</span></td>
-      <td class="num">{{ order.currency }} {{ order.claimed.total_minor | money }}</td>
-      <td class="num">{{ order.currency }} {{ order.payable_minor | money }}</td>
-      <td>{{ order.approval_status }}</td>
-      <td>
-        {% if order.status == "Complete" %}<span class="badge ok">Complete</span>
-        {% elif order.status == "CaptureSubmitted" %}<span class="badge wait">Capture sent</span>
-        {% elif order.status == "PayerAction" %}<span class="badge wait">PayPal approval</span>
-        {% elif order.status == "NeedsApproval" %}<span class="badge wait">Needs approval</span>
-        {% elif order.status == "Rejected" %}<span class="badge neutral">Rejected</span>
-        {% elif order.status == "Incident" %}<span class="badge malicious">Incident</span>
-        {% elif order.status == "Blocked" %}<span class="badge neutral">Blocked</span>
-        {% else %}{{ order.status }}{% endif %}
-      </td>
-      <td>
-        {% if order.kind == "malicious" %}<span class="badge malicious">Malicious</span>
-        {% elif order.kind == "policy" %}<span class="badge policy">Policy</span>
-        {% else %}—{% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% else %}
-<div class="empty">
-  <h2>No orders yet</h2>
-  <p>Run <code>python -m app.demo</code>, then refresh. That writes the honest shoe purchase and the four blocks.</p>
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Shopping-agent oversight</p>
+    <h1>Orders</h1>
+    <p class="lede">Till checks each shopping proposal before PayPal can charge the buyer.</p>
+  </div>
+  <a class="button secondary" href="/policy">Review spending rules</a>
 </div>
+
+{% if paypal_mode == "simulate" %}
+<p class="banner" role="status"><strong>Simulation mode.</strong> Till uses a local fake PayPal client; no real payment is made.</p>
+{% endif %}
+{% if not needs_model_configured %}
+<p class="alert" role="status"><strong>AI needs check is not configured.</strong> Proposals that need a needs judgment will wait for your review. Add <code>NEEDS_MODEL_API_KEY</code> to <code>.env</code> to enable it.</p>
+{% endif %}
+
+<details class="how-it-works" {% if not orders %}open{% endif %}>
+  <summary>How Till works</summary>
+  <div class="onboarding-flow">
+    <ol>
+      <li><strong>Set your rules</strong>Choose what the agent may buy, spending caps, and when Till should ask you.</li>
+      <li><strong>Connect a shopping agent</strong>The agent sends proposals to <code>POST /api/orders</code>. It cannot call PayPal or mark an order approved.</li>
+      <li><strong>Review the outcome</strong>Till allows, blocks, or asks you to review. PayPal still asks the buyer to authorize each checkout.</li>
+    </ol>
+    <p>A PayPal order is marked complete only after Till verifies the capture event and checks its amount against the decision.</p>
+  </div>
+</details>
+
+<div class="section-head">
+  <h2>Order proposals</h2>
+  <span class="count">{{ orders | length }} total</span>
+</div>
+
+{% if orders %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">When</th>
+        <th scope="col">Item</th>
+        <th scope="col" class="num">Agent total</th>
+        <th scope="col" class="num">Checked total</th>
+        <th scope="col">Till decision</th>
+        <th scope="col">Payment</th>
+        <th scope="col">Risk</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for order in orders %}
+      <tr>
+        <td><time datetime="{{ order.created_at }}">{{ order.created_at | replace("T", " ") | replace("+00:00", " UTC") }}</time></td>
+        <td><a href="/orders/{{ order.id }}">{{ order.claimed.title }}</a><br><span class="who">{{ order.sku }}</span></td>
+        <td class="num">{{ order.currency }} {{ order.claimed.total_minor | money }}</td>
+        <td class="num">{{ order.currency }} {{ order.payable_minor | money }}</td>
+        <td>
+          {% if order.decision == "ALLOW" %}<span class="badge ok">Allowed</span>
+          {% elif order.decision == "NEED_APPROVAL" %}<span class="badge wait">Needs your review</span>
+          {% else %}<span class="badge neutral">Blocked</span>{% endif %}
+        </td>
+        <td>
+          {% if order.status == "Complete" %}<span class="badge ok">Complete</span>
+          {% elif order.status == "CaptureSubmitted" %}<span class="badge wait">Verifying</span>
+          {% elif order.status == "PayerAction" %}<span class="badge wait">PayPal approval</span>
+          {% elif order.status == "NeedsApproval" %}<span class="badge wait">Waiting on you</span>
+          {% elif order.status == "Rejected" %}<span class="badge neutral">Declined</span>
+          {% elif order.status == "Incident" %}<span class="badge bad">Incident</span>
+          {% elif order.status == "Blocked" %}<span class="badge neutral">Not sent</span>
+          {% else %}<span class="badge neutral">{{ order.status }}</span>{% endif %}
+        </td>
+        <td>
+          {% if order.kind == "malicious" %}<span class="badge bad">Tampering</span>
+          {% elif order.kind == "policy" %}<span class="badge neutral">Policy</span>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<section class="empty">
+  <p class="eyebrow">Ready when you are</p>
+  <h2>No proposals yet</h2>
+  <p>First, review your spending rules. When your shopping agent sends a cart to Till, it will appear here for review.</p>
+  <div class="actions">
+    <a class="button" href="/policy">Set spending rules</a>
+  </div>
+  <p class="field-help">Till is an approval and payment-safety layer. It does not search stores or create shopping proposals itself.</p>
+</section>
 {% endif %}
 {% endblock %}
