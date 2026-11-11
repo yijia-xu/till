@@ -1,57 +1,69 @@
 # Till
 
-Till sits between a shopping agent and PayPal. The agent may propose an item. Only Till creates, reads, captures, or voids a PayPal order. A person opens Till to see each order: whether it was approved, whether it succeeded, where it failed, and whether that failure was malicious.
+Till is a payment-safety layer between a shopping agent and PayPal. A shopping agent can propose an order, but Till checks it against the shopper’s saved intent, catalog data, spending limits, duplicate-payment rules, and PayPal order details. It also detects tampering and other malicious payment attempts before a payment can proceed.
 
-Decisions are `ALLOW`, `BLOCK`, or `NEED_APPROVAL`. Amounts are integer minor units. Quantity times unit price, plus tax, shipping, and add-ons, is the full total Till compares to the caps.
+## Requirements
 
-## Run the demo
+- Python 3.13 (also pinned in `.python-version` for Render builds).
+- A Gemini API key to enable AI matching and needs checks.
+- PayPal Sandbox REST app credentials to create PayPal Sandbox orders. `PAYPAL_MODE=simulate` can be used without PayPal credentials.
+
+## Run locally
 
 ```bash
-python -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 cp .env.example .env
-python -m app.demo
+```
+
+Edit `.env` with your Gemini key and, if using PayPal Sandbox, your PayPal Sandbox app credentials. Then start Till:
+
+```bash
 uvicorn app.main:app --reload
 ```
 
-Open http://127.0.0.1:8000 and sign in as `demo@till.local` / `demo`.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000) and sign in with the demo account:
 
-## First time using Till
+- Email: `demo@till.local`
+- Password: `demo`
 
-Till is a payment safety desk for a shopping agent. Its AI can match a request against Till's demo catalog, then sends a proposed order through Till's checks. Till decides whether to allow it, block it, or ask the shopper to review it. It does not search the open web or connect to merchant inventory feeds.
+The local app uses SQLite at `till.db` by default. `/health` reports whether the app is up, the PayPal mode, and the configured AI model.
 
-1. Open **Shopping**, describe the item, set the per-order, per-day, category, and ask-above amounts, and enter a delivery address. The caps are hard limits; ask-above only adds a review step below those limits.
-2. Add a Gemini API key from Google AI Studio as `NEEDS_MODEL_API_KEY` in `.env`. **Find a match with AI** asks the shopping agent to choose from Till's local demo catalog. It cannot invent products or prices. The same key powers the separate needs check during checkout.
-3. To connect an MCP-compatible external agent, install `requirements.txt` and register `python -m app.mcp_server` as a local stdio MCP server. It exposes `submit_order_proposal` and `get_order_decision`, backed by Till's authenticated API. Set `TILL_MCP_API_URL` (defaults to `http://127.0.0.1:8000`) and `TILL_AGENT_TOKEN` in the MCP process environment. The MCP tools cannot approve or capture a payment.
-4. Open **Orders** to review proposals. Open an order to see the shopper request, agent proposal, catalog snapshot, and PayPal order. Approve or decline proposals that need your review.
-5. For a sandbox payment, continue to PayPal and sign in with a sandbox personal test account to authorize it. Till captures only after the buyer returns and PayPal confirms authorization. A completed payment is confirmed by a verified webhook.
+## Use Till
 
-With `PAYPAL_MODE=simulate`, actions use the local simulator and do not charge a PayPal account. If `NEEDS_MODEL_API_KEY` is empty, AI matching is disabled and an order that needs a model judgment waits for a person.
+1. Open **Shopping** and describe the item and constraints in natural language.
+2. Set a hard cap per order, per day, and per category, plus the amount above which Till should ask for review. Shipping and add-ons count toward the limits.
+3. Enter the delivery address as `street, city, state/province, postal code, 2-letter country code`.
+4. Choose **Find a match with AI**. Till matches the request against the products on shopping websites, then submits the selected item as an order proposal for policy checks.
+5. Open **Orders** to see Till's decision, checked amount, payment status, and any risk flags. If a proposal needs review, approve or decline it in Till.
+6. For PayPal Sandbox checkout, follow the PayPal approval link and authorize the order with a Sandbox personal test account. Till captures only after the required approval steps. A verified PayPal webhook confirms completion.
 
-`python -m app.demo` uses a fake PayPal client. It does not call PayPal. `NEEDS_MODEL_API_KEY` is used by both the AI catalog matcher and the needs check. The model says whether a listing fits the shopper's sentence. It cannot turn a hard block into an allow. If the key is missing or the model is down, that check waits for a person. The honest order is a $74 pair of running shoes, size 9, under the $80 cap, with no subscription. Till would capture it, then a local verified webhook marks it complete. Changed price, swapped item, changed quantity, and a second charge for the same shoes are blocked.
+## Environment variables
 
-The agent token in `.env.example` is `demo-agent-token`. The agent sends `POST /api/orders` and reads `GET /api/orders/{id}`. It has no PayPal credentials. Fields named `approved`, `user_id`, and `amount` grant nothing.
+Copy `.env.example` to `.env`. Keep `.env` private and never commit API keys, PayPal secrets, or production tokens.
 
-```bash
-pytest
-```
+| Variable                                    | Purpose                                                                                                                                         |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PAYPAL_MODE`                               | `simulate` or `sandbox`. Simulation never contacts PayPal.                                                                                      |
+| `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | Credentials for your PayPal Sandbox REST app. Required in `sandbox` mode.                                                                       |
+| `PAYPAL_BASE`                               | Sandbox API base, normally `https://api-m.sandbox.paypal.com`.                                                                                  |
+| `PAYPAL_WEBHOOK_ID`                         | ID of the webhook configured in the PayPal Developer Dashboard. Needed to verify incoming PayPal webhook events.                                |
+| `TILL_PUBLIC_BASE_URL`                      | Public origin used for PayPal return/cancel links and webhook URL. Use `http://127.0.0.1:8000` locally and your HTTPS Render URL when deployed. |
+| `TILL_DB`                                   | SQLite database path. Defaults to `till.db`.                                                                                                    |
+| `TILL_AGENT_TOKEN`                          | Bearer token for the external agent API and MCP server. Change the demo value for any shared deployment.                                        |
+| `TILL_MCP_API_URL`                          | Base URL used by the MCP server to reach Till. Defaults to `http://127.0.0.1:8000`.                                                             |
+| `TILL_SIMULATOR_TOKEN`                      | Token for the local simulator webhook endpoint. Do not use it as a PayPal webhook credential.                                                   |
+| `TILL_DUPLICATE_WINDOW_SECONDS`             | Time window used to block repeat payments for the same item.                                                                                    |
+| `TILL_APPROVAL_TTL_SECONDS`                 | Lifetime of a shopper review approval.                                                                                                          |
+| `TILL_INTENT_TTL_SECONDS`                   | Lifetime of the saved shopping intent.                                                                                                          |
+| `NEEDS_MODEL_API_KEY`                       | Gemini API key used by AI shopping matching and needs checks.                                                                                   |
+| `NEEDS_MODEL_URL`                           | Gemini API base URL. The default is the Google Generative Language API.                                                                         |
+| `NEEDS_MODEL_NAME`                          | Gemini model name. Defaults to `gemini-3.5-flash-lite`.                                                                                         |
 
-## PayPal sandbox
+## Connect an MCP agent
 
-Leave `PAYPAL_MODE=simulate` to run the demo and the tests. Till uses the real sandbox client only when `PAYPAL_MODE=sandbox` and both `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` are set.
-
-1. Create a REST app in the PayPal Developer Dashboard and copy the sandbox client id and secret into `.env`. Do not commit `.env`.
-2. Set `PAYPAL_MODE=sandbox` and `PAYPAL_BASE=https://api-m.sandbox.paypal.com`.
-3. Set `TILL_PUBLIC_BASE_URL` to the origin where the buyer can return to Till (for local use, `http://127.0.0.1:8000`; for deployment, your public HTTPS origin). Enter delivery addresses as `street, city, state/province, postal code, 2-letter country code` (for example, `2211 N First St, San Jose, CA, 95131, US`). Till sends that exact address to PayPal and blocks an agent proposal that changes it. Restart Till. Create still puts the decision id in `custom_id`. Capture sends `PayPal-Request-Id`.
-4. For webhooks, subscribe `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED`, and `PAYMENT.CAPTURE.DENIED` to a public `POST /webhooks/paypal`. Set `PAYPAL_WEBHOOK_ID`. Till checks the signature and accepts the certificate URL only when its host is PayPal. Each event id is applied once. The order is complete only when the captured currency and amount match the decision.
-5. Without a public URL, post a simulator event to `POST /webhooks/simulator` with header `X-Till-Simulator-Token`. That path is for the local demo. It does not replace signature verification on `/webhooks/paypal`.
-
-After Till allows an order, the buyer must follow the PayPal approval link before Till captures it. A shopper approval in Till is a separate policy gate and does not substitute for PayPal buyer authorization. Till does not treat an order id as completion. A mismatch, or a capture with no approved decision, is an incident. Till voids the PayPal order if it is still open.
-
-### MCP setup
-
-The MCP server uses the Streamable MCP stdio transport. In an MCP host configuration, point the server command to this checkout, for example:
+Till's MCP server uses the stdio transport and calls Till's authenticated HTTP API. Install the app dependencies, then register a server in your MCP host configuration:
 
 ```json
 {
@@ -62,23 +74,56 @@ The MCP server uses the Streamable MCP stdio transport. In an MCP host configura
       "cwd": "/absolute/path/to/till",
       "env": {
         "TILL_MCP_API_URL": "http://127.0.0.1:8000",
-        "TILL_AGENT_TOKEN": "demo-agent-token"
+        "TILL_AGENT_TOKEN": "your-agent-token"
       }
     }
   }
 }
 ```
 
-Start Till's web app before launching the MCP host. `submit_order_proposal` sends the same fields as `POST /api/orders`; Till remains the authority for catalog matching, spending policy, shopper approval, and PayPal actions. `get_order_decision` reads the resulting order. The MCP server does not search the open web and does not expose PayPal credentials or payment controls.
+Start Till before launching the MCP host. Available tools:
 
-## Deferred
+- `submit_order_proposal`: submits an order proposal for Till to evaluate. Money fields use minor units (for example, `7400` means USD 74.00).
+- `get_order_decision`: reads the current decision and status for a submitted order.
 
-These stay out of v1:
+The MCP server does not expose PayPal credentials or payment controls. For a deployed Till service, set `TILL_MCP_API_URL` to its HTTPS URL and provide the matching `TILL_AGENT_TOKEN` to the MCP process.
 
-- Refuse a payment that has no shopper intent.
-- Separate authorization for a subscription or a protection plan.
-- Confirm the first order from a new merchant.
-- Add up split orders and rapid small charges before the budget check.
-- Ignore product-page text that tries to change the rules.
+## PayPal Sandbox and webhooks
 
-Till does not refund, answer disputes, fetch arbitrary merchant URLs, or train a model.
+1. In the PayPal Developer Dashboard, create a REST app in **Sandbox** and copy its client ID and secret to the environment where Till runs.
+2. Set `PAYPAL_MODE=sandbox`, `PAYPAL_BASE=https://api-m.sandbox.paypal.com`, and `TILL_PUBLIC_BASE_URL` to the URL where the buyer can return to Till.
+3. Add a PayPal webhook pointing to `https://<your-domain>/webhooks/paypal`. Subscribe to `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED`, and `PAYMENT.CAPTURE.DENIED`.
+4. Copy the webhook ID into `PAYPAL_WEBHOOK_ID` and restart or redeploy Till.
+
+PayPal sends webhook events with `POST`. Opening `/webhooks/paypal` in a browser uses `GET` and returns endpoint configuration information; it does not simulate a payment or webhook event. Till verifies PayPal webhook signatures before applying events. For local development without a public webhook URL, the simulator endpoint is `POST /webhooks/simulator` and requires `X-Till-Simulator-Token`.
+
+## Deploy to Render
+
+1. Push the project to GitHub and connect the repository to a Render **Web Service**.
+2. Use these commands:
+   - Build: `pip install -r requirements.txt`
+   - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+3. Add the required values from `.env.example` in the Render service's **Environment** settings. Set `TILL_PUBLIC_BASE_URL` to the Render HTTPS URL. Do not upload `.env` to GitHub.
+4. Deploy. Render will redeploy from the linked branch when new commits are pushed, if automatic deploys are enabled.
+
+The `.python-version` file pins the build to Python 3.13 to keep the MCP SDK and the app's FastAPI/Starlette dependencies compatible. A `PYTHON_VERSION` value set in Render's Environment settings takes precedence over this file.
+
+The default database is a local SQLite file. Render's local filesystem is not a durable database across all service lifecycle events; use a persistent disk for a demo that must retain data, or move to a managed database for a longer-lived deployment.
+
+## Agent HTTP API
+
+External agents can use the same authenticated API as the MCP tools:
+
+- `POST /api/orders` submits a proposal with `Authorization: Bearer <TILL_AGENT_TOKEN>`.
+- `GET /api/orders/{order_id}` reads its decision and status with the same authorization header.
+
+The agent API does not accept caller claims such as `approved`, `user_id`, or `amount` as authority. Till calculates the policy decision itself.
+
+## Development
+
+```bash
+pytest
+```
+
+`python -m app.demo` runs the local demo with a fake PayPal client; it does not call PayPal.
