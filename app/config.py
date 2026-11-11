@@ -44,7 +44,7 @@ def load_settings() -> Settings:
         paypal_client_secret=text("PAYPAL_CLIENT_SECRET"),
         paypal_webhook_id=text("PAYPAL_WEBHOOK_ID"),
         paypal_base=text("PAYPAL_BASE", "https://api-m.sandbox.paypal.com"),
-        public_base_url=text("TILL_PUBLIC_BASE_URL", "http://127.0.0.1:8000").rstrip("/"),
+        public_base_url=(text("TILL_PUBLIC_BASE_URL") or "http://127.0.0.1:8000").rstrip("/"),
         db_path=text("TILL_DB", "till.db"),
         agent_token=text("TILL_AGENT_TOKEN", "demo-agent-token"),
         simulator_token=text("TILL_SIMULATOR_TOKEN", "demo-simulator-token"),
@@ -53,5 +53,5 @@ def load_settings() -> Settings:
         intent_ttl_seconds=whole("TILL_INTENT_TTL_SECONDS", 604800),
         needs_model_api_key=text("NEEDS_MODEL_API_KEY"),
         needs_model_url=text("NEEDS_MODEL_URL", "https://generativelanguage.googleapis.com/v1beta/models"),
-        needs_model_name=text("NEEDS_MODEL_NAME", "gemini-3.8-flash"),
+        needs_model_name=text("NEEDS_MODEL_NAME", "gemini-3.5-flash-lite"),
     )

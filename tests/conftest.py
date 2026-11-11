@@ -10,6 +10,7 @@ from app.main import create_app
 class _ModelResponse:
     def __init__(self, payload: dict):
         self._payload = payload
+        self.status_code = 200
 
     def raise_for_status(self) -> None:
         return None
@@ -18,9 +19,9 @@ class _ModelResponse:
         return self._payload
 
 
-def _fake_needs_post(url, headers=None, json=None, timeout=None):
-    """Stand in for the needs LLM. Tests never call a live model."""
-    prompt = jsonlib.loads(json["messages"][1]["content"])
+def _fake_gemini_post(url, headers=None, json=None, timeout=None):
+    """Stand in for Gemini. Tests never call a live model."""
+    prompt = jsonlib.loads(json["contents"][0]["parts"][0]["text"])
     listing = prompt.get("listing") or {}
     asked = str(prompt.get("category") or "").strip().lower().replace(" ", "_")
     found = str(listing.get("category") or "").strip().lower().replace(" ", "_")
@@ -41,7 +42,7 @@ def _fake_needs_post(url, headers=None, json=None, timeout=None):
         judgment = "fit"
         explanation = "The listing matches the shopper's request."
     return _ModelResponse(
-        {"choices": [{"message": {"content": jsonlib.dumps({"judgment": judgment, "explanation": explanation})}}]}
+        {"candidates": [{"content": {"parts": [{"text": jsonlib.dumps({"judgment": judgment, "explanation": explanation})}]}}]}
     )
 
 
@@ -61,14 +62,14 @@ def settings(tmp_path):
         approval_ttl_seconds=900,
         intent_ttl_seconds=604800,
         needs_model_api_key="test-key",
-        needs_model_url="https://needs.example/v1/chat/completions",
-        needs_model_name="gpt-4o-mini",
+        needs_model_url="https://generativelanguage.googleapis.com/v1beta/models",
+        needs_model_name="gemini-3.5-flash-lite",
     )
 
 
 @pytest.fixture
 def app(settings, monkeypatch):
-    monkeypatch.setattr("app.needs.httpx.post", _fake_needs_post)
+    monkeypatch.setattr("app.gemini.httpx.post", _fake_gemini_post)
     return create_app(settings)
 
 

@@ -15,6 +15,7 @@ from .paypal import (
     PayPalError,
     amount_minor,
     custom_id_of,
+    parse_paypal_shipping_address,
     paypal_line,
     paypal_order_id_of,
 )
@@ -382,6 +383,14 @@ def submit_proposal(
     public_base_url: str = "",
 ) -> dict:
     claim, ignored = parse_proposal(body)
+    if getattr(paypal, "mode", "simulate") == "sandbox":
+        _, policy = active_policy(conn)
+        try:
+            parse_paypal_shipping_address(str(policy.get("shipping_address") or ""))
+        except PayPalError as exc:
+            raise CheckoutError(400, exc.message) from exc
+        if " ".join(claim["address"].split()).casefold() != " ".join(str(policy["shipping_address"]).split()).casefold():
+            raise CheckoutError(400, "The proposal delivery address must match the shopper's saved address.")
     fingerprint = claim_fingerprint(claim)
     replay_id = None
     order_id = None
@@ -492,6 +501,7 @@ def start_payment(conn, paypal, order_id: str, *, public_base_url: str = "") -> 
                 sku=listed["sku"],
                 quantity=int(claimed["quantity"]),
                 request_id=request_id,
+                shipping_address=order["address"],
                 return_url=f"{base_url}/paypal/return?decision_id={order['id']}" if base_url else None,
                 cancel_url=f"{base_url}/paypal/cancel?decision_id={order['id']}" if base_url else None,
             )
@@ -514,16 +524,16 @@ def start_payment(conn, paypal, order_id: str, *, public_base_url: str = "") -> 
             audit(conn, order["id"], "payment_created", "Till created a PayPal order.", paypal_order_id=paypal_order_id)
         else:
             paypal_order_id = order["paypal_order_id"]
-    except PayPalError:
+    except PayPalError as exc:
+        message = f"{exc.message} Till did not capture. You can retry the PayPal connection."
         save_order(
             conn,
             order["id"],
-            status="Blocked",
-            decision="BLOCK",
+            status="Approved",
             problem="paypal",
-            explanation="PayPal did not accept the order. Till did not capture.",
+            explanation=message,
         )
-        audit(conn, order["id"], "paypal_error", "Creating the PayPal order failed. Till did not capture.")
+        audit(conn, order["id"], "paypal_error", message)
         return fetch_order(conn, order["id"])
 
     existing_capture = _row(
@@ -551,20 +561,16 @@ def start_payment(conn, paypal, order_id: str, *, public_base_url: str = "") -> 
 
     try:
         remote = paypal.get_order(paypal_order_id)
-    except PayPalError:
-        try:
-            paypal.void(paypal_order_id)
-        except PayPalError:
-            pass
+    except PayPalError as exc:
+        message = f"{exc.message} Till did not capture. You can retry the PayPal connection."
         save_order(
             conn,
             order["id"],
-            status="Blocked",
-            decision="BLOCK",
+            status="OrderCreated",
             problem="paypal_read",
-            explanation="Till could not read the PayPal order back, so it did not capture.",
+            explanation=message,
         )
-        audit(conn, order["id"], "paypal_read_failed", "The PayPal read failed. Till did not capture.")
+        audit(conn, order["id"], "paypal_read_failed", message)
         return fetch_order(conn, order["id"])
 
     line = paypal_line(remote) or {}
@@ -620,15 +626,16 @@ def start_payment(conn, paypal, order_id: str, *, public_base_url: str = "") -> 
 
     try:
         capture = paypal.capture(paypal_order_id, request_id)
-    except PayPalError:
+    except PayPalError as exc:
+        message = f"{exc.message} Till did not mark it complete. Check the PayPal transaction before trying again."
         save_order(
             conn,
             order["id"],
             status="Incident",
             problem="paypal",
-            explanation="PayPal did not capture the order. Till did not mark it complete.",
+            explanation=message,
         )
-        audit(conn, order["id"], "capture_failed", "Capture failed. The order is not complete.")
+        audit(conn, order["id"], "capture_failed", message)
         return fetch_order(conn, order["id"])
 
     parsed = amount_minor(capture)
@@ -728,6 +735,15 @@ def approve_order(conn, paypal, order_id: str, shopper_id: str, *, public_base_u
         approved_hash=order["approval_hash"],
     )
     audit(conn, order_id, "shopper_approved", "The shopper approved this exact payload.")
+    return start_payment(conn, paypal, order_id, public_base_url=public_base_url)
+
+
+def retry_paypal_order(conn, paypal, order_id: str, shopper_id: str, *, public_base_url: str = "") -> dict:
+    order = fetch_order(conn, order_id)
+    if order is None or order["shopper_id"] != shopper_id:
+        raise CheckoutError(404, "Order not found.")
+    if order["status"] not in {"Approved", "OrderCreated"} or order["problem"] not in {"paypal", "paypal_read"}:
+        raise CheckoutError(409, "This order is not ready for a PayPal retry.")
     return start_payment(conn, paypal, order_id, public_base_url=public_base_url)
 
 

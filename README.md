@@ -43,7 +43,7 @@ Leave `PAYPAL_MODE=simulate` to run the demo and the tests. Till uses the real s
 
 1. Create a REST app in the PayPal Developer Dashboard and copy the sandbox client id and secret into `.env`. Do not commit `.env`.
 2. Set `PAYPAL_MODE=sandbox` and `PAYPAL_BASE=https://api-m.sandbox.paypal.com`.
-3. Set `TILL_PUBLIC_BASE_URL` to the origin where the buyer can return to Till (for local use, `http://127.0.0.1:8000`; for deployment, your public HTTPS origin). Restart Till. Create still puts the decision id in `custom_id`. Capture sends `PayPal-Request-Id`.
+3. Set `TILL_PUBLIC_BASE_URL` to the origin where the buyer can return to Till (for local use, `http://127.0.0.1:8000`; for deployment, your public HTTPS origin). Enter delivery addresses as `street, city, state/province, postal code, 2-letter country code` (for example, `2211 N First St, San Jose, CA, 95131, US`). Till sends that exact address to PayPal and blocks an agent proposal that changes it. Restart Till. Create still puts the decision id in `custom_id`. Capture sends `PayPal-Request-Id`.
 4. For webhooks, subscribe `CHECKOUT.ORDER.APPROVED`, `PAYMENT.CAPTURE.COMPLETED`, and `PAYMENT.CAPTURE.DENIED` to a public `POST /webhooks/paypal`. Set `PAYPAL_WEBHOOK_ID`. Till checks the signature and accepts the certificate URL only when its host is PayPal. Each event id is applied once. The order is complete only when the captured currency and amount match the decision.
 5. Without a public URL, post a simulator event to `POST /webhooks/simulator` with header `X-Till-Simulator-Token`. That path is for the local demo. It does not replace signature verification on `/webhooks/paypal`.
 

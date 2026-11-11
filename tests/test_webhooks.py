@@ -117,15 +117,18 @@ def test_real_signature_completes_when_the_amount_matches(client, app, agent_hea
 
 
 def test_real_client_is_selected_only_with_sandbox_credentials():
+    import pytest
     from app.config import Settings
-    from app.paypal import build_paypal
+    from app.paypal import PayPalError, build_paypal
 
     simulated = build_paypal("simulate", "https://api-m.sandbox.paypal.com", "id", "secret", "wh")
     assert simulated.mode == "simulate"
     live = build_paypal("sandbox", "https://api-m.sandbox.paypal.com", "id", "secret", "wh")
     assert live.mode == "sandbox"
-    missing = build_paypal("sandbox", "https://api-m.sandbox.paypal.com", "", "", "wh")
-    assert missing.mode == "simulate"
+    with pytest.raises(PayPalError, match="requires both"):
+        build_paypal("sandbox", "https://api-m.sandbox.paypal.com", "", "", "wh")
+    with pytest.raises(PayPalError, match="Sandbox API host"):
+        build_paypal("sandbox", "https://api-m.paypal.com", "id", "secret", "wh")
     assert Settings  # settings object is the other selector used by the app
 
 
@@ -153,6 +156,73 @@ def test_capture_request_sends_paypal_request_id(monkeypatch):
     client.capture("ORDER1", "dec_123")
     assert captured["headers"]["PayPal-Request-Id"] == "dec_123"
     assert captured["url"].endswith("/v2/checkout/orders/ORDER1/capture")
+
+
+def test_sandbox_order_includes_the_saved_shipping_address(monkeypatch):
+    from app.paypal import PayPalClient
+
+    captured = {}
+
+    class Response:
+        status_code = 201
+        content = b'{"id":"ORDER","status":"CREATED","links":[]}'
+
+        def json(self):
+            return {"id": "ORDER", "status": "CREATED", "links": []}
+
+    def fake_request(method, url, headers=None, json=None, timeout=None):
+        captured["body"] = json
+        return Response()
+
+    monkeypatch.setattr("app.paypal.httpx.request", fake_request)
+    client = PayPalClient("sandbox", "https://api-m.sandbox.paypal.com", "id", "secret", "wh")
+    monkeypatch.setattr(client, "_token", lambda: "token")
+    client.create_order(
+        custom_id="decision-1", currency="USD", payable_minor=1, item_minor=1,
+        tax_minor=0, shipping_minor=0, title="Test item", sku="TEST-1", quantity=1,
+        request_id="decision-1",
+        shipping_address="2211 N First St, San Jose, CA, 95131, US",
+        return_url="https://example.test/paypal/return?decision_id=decision-1",
+        cancel_url="https://example.test/paypal/cancel?decision_id=decision-1",
+    )
+    address = captured["body"]["purchase_units"][0]["shipping"]["address"]
+    assert address == {
+        "address_line_1": "2211 N First St",
+        "admin_area_2": "San Jose",
+        "admin_area_1": "CA",
+        "postal_code": "95131",
+        "country_code": "US",
+    }
+
+
+def test_capture_returns_the_nested_paypal_capture(monkeypatch):
+    from app.paypal import PayPalClient, amount_minor, paypal_order_id_of
+
+    class Response:
+        status_code = 201
+        content = b'{"id":"ORDER1","status":"COMPLETED"}'
+
+        def json(self):
+            return {
+                "id": "ORDER1",
+                "status": "COMPLETED",
+                "purchase_units": [{
+                    "payments": {"captures": [{
+                        "id": "CAPTURE1",
+                        "status": "COMPLETED",
+                        "amount": {"currency_code": "USD", "value": "74.00"},
+                        "custom_id": "decision-1",
+                    }]}
+                }],
+            }
+
+    monkeypatch.setattr("app.paypal.httpx.request", lambda *args, **kwargs: Response())
+    client = PayPalClient("sandbox", "https://api-m.sandbox.paypal.com", "id", "secret", "wh")
+    monkeypatch.setattr(client, "_token", lambda: "token")
+    capture = client.capture("ORDER1", "decision-1")
+    assert capture["id"] == "CAPTURE1"
+    assert amount_minor(capture) == ("USD", 7400)
+    assert paypal_order_id_of(capture) == "ORDER1"
 
 
 def order_row(app, order_id):

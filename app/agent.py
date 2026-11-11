@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 
-DEMO_ADDRESS = "100 Demo Ave, Springfield, IL 62701"
+DEMO_ADDRESS = "100 Demo Ave, Springfield, IL, 62701, US"
 
 
 def proposal(scenario: str) -> dict:

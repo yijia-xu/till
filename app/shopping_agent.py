@@ -62,7 +62,7 @@ class ShoppingAgent:
                 ),
                 payload=payload,
                 # First model calls can take longer while the provider warms up.
-                timeout=45.0,
+                timeout=20.0,
             )
             sku = data.get("sku")
             reason = str(data.get("reason") or "The item was matched against Till's catalog.")[:400]
@@ -96,5 +96,5 @@ def build_shopping_agent(api_key: str, url: str, model: str) -> ShoppingAgent:
     return ShoppingAgent(
         url or "https://generativelanguage.googleapis.com/v1beta/models",
         api_key,
-        model or "gemini-3.8-flash",
+        model or "gemini-3.5-flash-lite",
     )

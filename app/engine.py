@@ -186,6 +186,16 @@ def evaluate(
             is_malicious=True,
         )
     else:
+        expected_address = " ".join(str(policy.get("shipping_address") or "").split()).casefold()
+        proposed_address = " ".join(str(claimed.get("address") or "").split()).casefold()
+        if expected_address and proposed_address != expected_address:
+            add(
+                "shipping_address_mismatch",
+                "The delivery address in the proposal does not match the shopper's saved address.",
+                hard=True,
+                kind="tamper",
+                is_malicious=True,
+            )
         if claimed["merchant_id"] != listed["merchant_id"] or claimed["sku"] != listed["sku"]:
             add(
                 "sku_swap",

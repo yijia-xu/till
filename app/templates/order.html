@@ -77,6 +77,14 @@
   <p>Review the same item and total on PayPal. Till captures only after PayPal returns an approved order.</p>
   <a class="button" href="{{ order.approve_url }}">Continue to PayPal</a>
 </section>
+{% elif order.status in ["Approved", "OrderCreated"] and order.problem in ["paypal", "paypal_read"] and order.decision == "ALLOW" %}
+<section class="action-panel" aria-labelledby="paypal-retry-heading">
+  <h2 id="paypal-retry-heading">PayPal connection interrupted</h2>
+  <p>{{ order.explanation }}</p>
+  <form method="post" action="/orders/{{ order.id }}/retry-paypal">
+    <button class="primary" type="submit">Retry PayPal</button>
+  </form>
+</section>
 {% endif %}
 
 <h2>Compare the order</h2>

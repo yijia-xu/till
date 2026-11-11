@@ -55,7 +55,7 @@ DEFAULT_POLICY = {
     "allowed_merchants": [],
     "rule_citations": [],
     "intent_quantity": 1,
-    "shipping_address": "",
+    "shipping_address": "100 Demo Ave, Springfield, IL, 62701, US",
 }
 
 

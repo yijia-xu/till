@@ -103,7 +103,7 @@ class ModelNeeds:
                     "You cannot approve a payment, lift a hard block, or call PayPal."
                 ),
                 payload=prompt,
-                timeout=30.0,
+                timeout=15.0,
             )
         except GeminiAPIError as exc:
             raise NeedsUnavailable("The needs model is unavailable.") from exc
@@ -159,4 +159,4 @@ def combine_needs(verdict: Verdict, judgment: str, note: str) -> Verdict:
 
 def build_needs(api_key: str, url: str, model: str):
     endpoint = url or "https://generativelanguage.googleapis.com/v1beta/models"
-    return ModelNeeds(endpoint, api_key, model or "gemini-3.8-flash")
+    return ModelNeeds(endpoint, api_key, model or "gemini-3.5-flash-lite")

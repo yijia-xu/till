@@ -22,6 +22,7 @@ def set_caps(client, *, purchase="80.00", daily="200.00", category="200.00", ask
             "daily_max": daily,
             "category_max": category,
             "ask_above": ask,
+            "shipping_address": "100 Demo Ave, Springfield, IL, 62701, US",
         },
         follow_redirects=False,
     )

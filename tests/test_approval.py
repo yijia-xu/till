@@ -74,4 +74,13 @@ def test_agent_cannot_approve(client, app, agent_headers):
     assert response.status_code == 303
     assert response.headers["location"].startswith("/login")
     assert app.state.paypal.calls == []
-    login(client)
+
+
+def test_agent_cannot_change_the_shopper_saved_shipping_address(client, app, agent_headers):
+    set_caps(client)
+    altered = proposal("honest") | {"address": "9 Other St, Springfield, IL, 62701, US"}
+    response = submit(client, agent_headers, altered).json()
+    assert response["decision"] == "BLOCK"
+    assert response["problem"] == "tamper"
+    assert response["malicious"] is True
+    assert app.state.paypal.calls == []

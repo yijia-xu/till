@@ -27,33 +27,42 @@ def generate_json(
     if not api_key:
         raise GeminiAPIError("Gemini API key is not configured.")
     endpoint = f"{base_url.rstrip('/')}/{quote(model, safe='')}:generateContent"
+    generation_config = {"responseMimeType": "application/json"}
+    if model.startswith("gemini-3"):
+        generation_config["thinkingConfig"] = {"thinkingLevel": "LOW"}
     body = {
         "systemInstruction": {"parts": [{"text": system_instruction}]},
         "contents": [{"role": "user", "parts": [{"text": json.dumps(payload, ensure_ascii=False)}]}],
-        "generationConfig": {"responseMimeType": "application/json"},
+        "generationConfig": generation_config,
     }
     response = None
     try:
-        for attempt in range(3):
-            response = httpx.post(
-                endpoint,
-                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                json=body,
-                timeout=timeout,
-            )
+        attempt = 0
+        while attempt < 3:
+            try:
+                response = httpx.post(
+                    endpoint,
+                    headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                    json=body,
+                    timeout=timeout,
+                )
+            except httpx.TimeoutException as exc:
+                if attempt == 0:
+                    attempt += 1
+                    continue
+                raise GeminiAPIError("Gemini API request timed out after a retry.") from exc
             if response.status_code not in {429, 500, 502, 503, 504} or attempt == 2:
                 response.raise_for_status()
                 break
             # Gemini can return transient capacity errors. Retry briefly before
             # surfacing the provider status to the user.
             time.sleep(1 + attempt)
+            attempt += 1
     except httpx.HTTPStatusError as exc:
         raise GeminiAPIError(
             f"Gemini API returned HTTP {exc.response.status_code}.",
             status_code=exc.response.status_code,
         ) from exc
-    except httpx.TimeoutException as exc:
-        raise GeminiAPIError("Gemini API request timed out.") from exc
     except httpx.RequestError as exc:
         raise GeminiAPIError("Till could not reach Gemini API.") from exc
 

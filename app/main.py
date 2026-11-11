@@ -27,6 +27,7 @@ from .checkout import (
     remove_allowed_merchant,
     reject_order,
     resume_paypal_approval,
+    retry_paypal_order,
     save_policy,
     submit_proposal,
 )
@@ -34,7 +35,7 @@ from .config import Settings, load_settings
 from .db import SHOPPER_EMAIL, init_db, utcnow, verify_password
 from .money import dollars_to_minor, from_minor
 from .needs import build_needs, parse_sentence
-from .paypal import build_paypal, fetch_paypal_cert, verify_webhook_signature
+from .paypal import PayPalError, build_paypal, fetch_paypal_cert, parse_paypal_shipping_address, verify_webhook_signature
 from .shopping_agent import ShoppingAgentUnavailable, build_shopping_agent
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -51,6 +52,12 @@ def _policy_from_form(form) -> tuple[str, dict]:
     if not sentence:
         raise ValueError("Write what you would like the shopping agent to find.")
     parsed = parse_sentence(sentence)
+    shipping_address = str(form.get("shipping_address") or "").strip()
+    if shipping_address:
+        try:
+            parse_paypal_shipping_address(shipping_address)
+        except PayPalError as exc:
+            raise ValueError(exc.message) from exc
     rules = {
         "category": parsed.category,
         "size": parsed.size,
@@ -67,7 +74,7 @@ def _policy_from_form(form) -> tuple[str, dict]:
         "include_shipping": True,
         "shipping_counts_toward_cap": True,
         "intent_quantity": 1,
-        "shipping_address": str(form.get("shipping_address") or "").strip(),
+        "shipping_address": shipping_address,
     }
     if rules["max_purchase_minor"] is None:
         raise ValueError("Set a per-order spending cap.")
@@ -108,7 +115,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health")
     def health():
-        return {"ok": True, "paypal_mode": app.state.paypal.mode}
+        return {
+            "ok": True,
+            "paypal_mode": app.state.paypal.mode,
+            "ai_model": settings.needs_model_name if settings.needs_model_api_key else None,
+        }
 
     @app.get("/")
     def root():
@@ -159,6 +170,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not ok:
             raise HTTPException(400, "Webhook signature check failed.")
         return _accept_event(raw, verified=True)
+
+    @app.get("/webhooks/paypal")
+    def paypal_webhook_info():
+        # PayPal delivers events with POST; make a browser visit useful for setup.
+        return {
+            "endpoint": f"{settings.public_base_url}/webhooks/paypal",
+            "method": "POST",
+            "configured": bool(settings.paypal_webhook_id),
+            "message": "PayPal webhook events are accepted with POST and signature verification.",
+        }
 
     @app.post("/webhooks/simulator")
     async def simulator_webhook(request: Request):
@@ -304,6 +325,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/orders/{order_id}/approve")
     def approve(order_id: str, request: Request):
         return _shopper_action(request, order_id, "approve")
+
+    @app.post("/orders/{order_id}/retry-paypal")
+    def retry_paypal(order_id: str, request: Request):
+        conn = open_db(settings.db_path)
+        try:
+            shopper = _shopper(conn, request)
+            if shopper is None:
+                return RedirectResponse(f"/login?next=/orders/{order_id}", status_code=303)
+            try:
+                order = retry_paypal_order(
+                    conn,
+                    app.state.paypal,
+                    order_id,
+                    shopper,
+                    public_base_url=settings.public_base_url,
+                )
+            except CheckoutError as exc:
+                return RedirectResponse(f"/orders/{order_id}?error={quote(exc.detail)}", status_code=303)
+        finally:
+            conn.close()
+        if order.get("approve_url") and order.get("status") == "PayerAction":
+            return RedirectResponse(order["approve_url"], status_code=303)
+        return RedirectResponse(f"/orders/{order_id}", status_code=303)
 
     @app.post("/orders/{order_id}/reject")
     def reject(order_id: str, request: Request):

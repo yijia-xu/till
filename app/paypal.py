@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import time
 import uuid
 import zlib
 from urllib.parse import urlparse
@@ -54,6 +55,8 @@ class PayPalClient:
         self.tamper_sku: str | None = None
         self.tamper_quantity: str | None = None
         self.tamper_currency: str | None = None
+        self._access_token = ""
+        self._access_token_expires_at = 0.0
 
     def create_order(
         self,
@@ -69,6 +72,7 @@ class PayPalClient:
         sku: str,
         quantity: int,
         request_id: str,
+        shipping_address: str,
         return_url: str | None = None,
         cancel_url: str | None = None,
     ) -> dict:
@@ -83,6 +87,11 @@ class PayPalClient:
                 {
                     "custom_id": custom_id[:127],
                     "invoice_id": request_id[:127],
+                    **(
+                        {"shipping": {"address": parse_paypal_shipping_address(shipping_address)}}
+                        if self.mode == "sandbox"
+                        else {}
+                    ),
                     "amount": {
                         "currency_code": currency,
                         "value": value,
@@ -127,6 +136,7 @@ class PayPalClient:
             return copy.deepcopy(order)
         return self._request("POST", "/v2/checkout/orders", body, request_id=request_id)
 
+
     def get_order(self, order_id: str) -> dict:
         self.calls.append(("read", order_id))
         if self.mode == "simulate":
@@ -165,12 +175,22 @@ class PayPalClient:
             order["status"] = "COMPLETED"
             order["capture"] = capture
             return copy.deepcopy(capture)
-        return self._request(
+        result = self._request(
             "POST",
             f"/v2/checkout/orders/{order_id}/capture",
             {},
             request_id=request_id,
         )
+        for unit in result.get("purchase_units") or []:
+            captures = ((unit.get("payments") or {}).get("captures") or [])
+            completed = next((item for item in captures if item.get("status") == "COMPLETED"), None)
+            if completed is not None:
+                capture = copy.deepcopy(completed)
+                supplementary = capture.setdefault("supplementary_data", {})
+                related_ids = supplementary.setdefault("related_ids", {})
+                related_ids.setdefault("order_id", result.get("id") or order_id)
+                return capture
+        return result
 
     def void(self, order_id: str) -> dict:
         self.calls.append(("void", order_id))
@@ -219,16 +239,33 @@ class PayPalClient:
         return result.get("verification_status") == "SUCCESS"
 
     def _token(self) -> str:
-        response = httpx.post(
-            f"{self.base}/v1/oauth2/token",
-            auth=(self.client_id, self.secret),
-            data={"grant_type": "client_credentials"},
-            headers={"Accept": "application/json"},
-            timeout=20.0,
-        )
-        if response.status_code >= 400:
-            raise PayPalError("PayPal refused the sandbox credentials.")
-        return response.json()["access_token"]
+        now = time.monotonic()
+        if self._access_token and now < self._access_token_expires_at - 60:
+            return self._access_token
+        try:
+            response = httpx.post(
+                f"{self.base}/v1/oauth2/token",
+                auth=(self.client_id, self.secret),
+                data={"grant_type": "client_credentials"},
+                headers={"Accept": "application/json"},
+                timeout=20.0,
+            )
+            if response.status_code >= 400:
+                raise PayPalError(f"PayPal OAuth request failed (HTTP {response.status_code}). Check the sandbox app credentials.")
+            result = response.json()
+            self._access_token = str(result["access_token"])
+            self._access_token_expires_at = now + int(result.get("expires_in", 0))
+            if not self._access_token:
+                raise PayPalError("PayPal OAuth response did not include an access token.")
+            return self._access_token
+        except PayPalError:
+            raise
+        except httpx.TimeoutException as exc:
+            raise PayPalError("PayPal OAuth request timed out.") from exc
+        except httpx.RequestError as exc:
+            raise PayPalError("Till could not reach PayPal OAuth.") from exc
+        except (ValueError, KeyError, TypeError) as exc:
+            raise PayPalError("PayPal returned an unreadable OAuth response.") from exc
 
     def _request(self, method: str, path: str, body: dict | None = None, request_id: str | None = None) -> dict:
         headers = {
@@ -237,18 +274,61 @@ class PayPalClient:
         }
         if request_id:
             headers["PayPal-Request-Id"] = request_id[:38]
-        response = httpx.request(method, f"{self.base}{path}", headers=headers, json=body, timeout=30.0)
+        try:
+            response = httpx.request(method, f"{self.base}{path}", headers=headers, json=body, timeout=30.0)
+        except httpx.TimeoutException as exc:
+            raise PayPalError(f"PayPal {method} request timed out.") from exc
+        except httpx.RequestError as exc:
+            raise PayPalError(f"Till could not reach PayPal for {method}.") from exc
         if response.status_code >= 400:
-            raise PayPalError(f"PayPal {method} {path} failed ({response.status_code}).")
+            detail = ""
+            try:
+                data = response.json()
+                name = data.get("name")
+                issue = next(iter(data.get("details") or []), {}).get("issue")
+                detail = "; ".join(str(value) for value in (name, issue) if value)
+            except (ValueError, TypeError, AttributeError):
+                pass
+            suffix = f": {detail}" if detail else ""
+            raise PayPalError(f"PayPal {method} {path} failed (HTTP {response.status_code}){suffix}.")
         if not response.content:
             return {}
-        return response.json()
+        try:
+            result = response.json()
+        except ValueError as exc:
+            raise PayPalError(f"PayPal {method} returned invalid JSON.") from exc
+        if not isinstance(result, dict):
+            raise PayPalError(f"PayPal {method} returned an unexpected response.")
+        return result
+
+
+def parse_paypal_shipping_address(value: str) -> dict:
+    """Parse the UI format: street, city, state/province, postal code, country code."""
+    parts = [part.strip() for part in value.split(",")]
+    if len(parts) != 5 or not all(parts) or len(parts[4]) != 2 or not parts[4].isalpha():
+        raise PayPalError(
+            "Enter a complete delivery address as street, city, state/province, postal code, and 2-letter country code (for example: 2211 N First St, San Jose, CA, 95131, US)."
+        )
+    return {
+        "address_line_1": parts[0],
+        "admin_area_2": parts[1],
+        "admin_area_1": parts[2],
+        "postal_code": parts[3],
+        "country_code": parts[4].upper(),
+    }
 
 
 def build_paypal(mode: str, base: str, client_id: str, secret: str, webhook_id: str) -> PayPalClient:
-    if client_id and secret and mode == "sandbox":
+    if mode == "simulate":
+        return PayPalClient("simulate", base, client_id, secret, webhook_id)
+    if mode == "sandbox":
+        if not client_id or not secret:
+            raise PayPalError("PAYPAL_MODE=sandbox requires both PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET.")
+        host = (urlparse(base).hostname or "").lower()
+        if host not in {"api-m.sandbox.paypal.com", "api.sandbox.paypal.com"}:
+            raise PayPalError("Sandbox mode only allows a PayPal Sandbox API host.")
         return PayPalClient("sandbox", base, client_id, secret, webhook_id)
-    return PayPalClient("simulate", base, client_id, secret, webhook_id)
+    raise PayPalError("PAYPAL_MODE must be either simulate or sandbox.")
 
 
 def fetch_paypal_cert(url: str) -> bytes:

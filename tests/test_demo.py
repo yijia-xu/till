@@ -24,7 +24,7 @@ def test_order_pages_show_the_four_views(client, app, agent_headers):
     page = client.get("/orders")
     assert page.status_code == 200
     assert "Nike Pegasus running shoes" in page.text
-    assert "Malicious" in page.text
+    assert "Tampering" in page.text
     honest = client.get("/orders").text
     assert "Complete" in honest
 
@@ -35,7 +35,7 @@ def test_order_pages_show_the_four_views(client, app, agent_headers):
     href = listing.text[start + 6 : listing.text.find('"', start + 6)]
     detail = client.get(href)
     assert detail.status_code == 200
-    for label in ("Ask", "Agent claim", "Listed price", "PayPal amount", "Item", "Tax", "Shipping", "Add-ons"):
+    for label in ("Ask above", "Agent's proposal", "Till's catalog snapshot", "PayPal order", "Item", "Tax", "Shipping", "Add-ons"):
         assert label in detail.text
 
     needs = submit(client, agent_headers, proposal("honest") | {"sku": "NECK-01", "title": "Gold necklace"}).json()
@@ -43,8 +43,8 @@ def test_order_pages_show_the_four_views(client, app, agent_headers):
     assert "Policy" in needs_page.text
     price = submit(client, agent_headers, proposal("price")).json()
     price_page = client.get(f"/orders/{price['id']}")
-    assert "Malicious" in price_page.text
-    assert "approved, user_id, or amount" in price_page.text
+    assert "Tampering" in price_page.text
+    assert "approved, user_id, amount" in price_page.text
 
 
 def test_capture_is_not_an_http_route(client):
