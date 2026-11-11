@@ -1,5 +1,7 @@
 # Till
 
+Till is the entry for the PayPal AI Hackathon 2026.
+
 Till is a payment-safety layer between a shopping agent and PayPal. A shopping agent can propose an order, but Till checks it against the shopper’s saved intent, catalog data, spending limits, duplicate-payment rules, and PayPal order details. It also detects tampering and other malicious payment attempts before a payment can proceed.
 
 ## Requirements
