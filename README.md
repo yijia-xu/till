@@ -23,7 +23,7 @@ Till is a payment safety desk for a shopping agent. Its AI can match a request a
 
 1. Open **Shopping**, describe the item, set the per-order, per-day, category, and ask-above amounts, and enter a delivery address. The caps are hard limits; ask-above only adds a review step below those limits.
 2. Add a Gemini API key from Google AI Studio as `NEEDS_MODEL_API_KEY` in `.env`. **Find a match with AI** asks the shopping agent to choose from Till's local demo catalog. It cannot invent products or prices. The same key powers the separate needs check during checkout.
-3. For an external agent, use the API token to submit proposals to `POST /api/orders`. The agent can read the decision but has no PayPal credentials and cannot approve or capture a payment.
+3. To connect an MCP-compatible external agent, install `requirements.txt` and register `python -m app.mcp_server` as a local stdio MCP server. It exposes `submit_order_proposal` and `get_order_decision`, backed by Till's authenticated API. Set `TILL_MCP_API_URL` (defaults to `http://127.0.0.1:8000`) and `TILL_AGENT_TOKEN` in the MCP process environment. The MCP tools cannot approve or capture a payment.
 4. Open **Orders** to review proposals. Open an order to see the shopper request, agent proposal, catalog snapshot, and PayPal order. Approve or decline proposals that need your review.
 5. For a sandbox payment, continue to PayPal and sign in with a sandbox personal test account to authorize it. Till captures only after the buyer returns and PayPal confirms authorization. A completed payment is confirmed by a verified webhook.
 
@@ -49,6 +49,28 @@ Leave `PAYPAL_MODE=simulate` to run the demo and the tests. Till uses the real s
 
 After Till allows an order, the buyer must follow the PayPal approval link before Till captures it. A shopper approval in Till is a separate policy gate and does not substitute for PayPal buyer authorization. Till does not treat an order id as completion. A mismatch, or a capture with no approved decision, is an incident. Till voids the PayPal order if it is still open.
 
+### MCP setup
+
+The MCP server uses the Streamable MCP stdio transport. In an MCP host configuration, point the server command to this checkout, for example:
+
+```json
+{
+  "mcpServers": {
+    "till": {
+      "command": "/absolute/path/to/till/.venv/bin/python",
+      "args": ["-m", "app.mcp_server"],
+      "cwd": "/absolute/path/to/till",
+      "env": {
+        "TILL_MCP_API_URL": "http://127.0.0.1:8000",
+        "TILL_AGENT_TOKEN": "demo-agent-token"
+      }
+    }
+  }
+}
+```
+
+Start Till's web app before launching the MCP host. `submit_order_proposal` sends the same fields as `POST /api/orders`; Till remains the authority for catalog matching, spending policy, shopper approval, and PayPal actions. `get_order_decision` reads the resulting order. The MCP server does not search the open web and does not expose PayPal credentials or payment controls.
+
 ## Deferred
 
 These stay out of v1:
@@ -58,6 +80,5 @@ These stay out of v1:
 - Confirm the first order from a new merchant.
 - Add up split orders and rapid small charges before the budget check.
 - Ignore product-page text that tries to change the rules.
-- An MCP door. When it exists, its tools are submit and get decision. It cannot capture.
 
 Till does not refund, answer disputes, fetch arbitrary merchant URLs, or train a model.

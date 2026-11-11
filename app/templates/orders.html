@@ -19,18 +19,6 @@
 <p class="alert" role="status"><strong>Gemini needs check is not configured.</strong> Proposals that need a needs judgment will wait for your review. Add a Gemini API key as <code>NEEDS_MODEL_API_KEY</code> where Till is running to enable it.</p>
 {% endif %}
 
-<details class="how-it-works" {% if not orders %}open{% endif %}>
-  <summary>How Till works</summary>
-  <div class="onboarding-flow">
-    <ol>
-      <li><strong>Set your rules</strong>Choose what the agent may buy, spending caps, and when Till should ask you.</li>
-      <li><strong>Connect a shopping agent</strong>The agent sends proposals to <code>POST /api/orders</code>. It cannot call PayPal or mark an order approved.</li>
-      <li><strong>Review the outcome</strong>Till allows, blocks, or asks you to review. PayPal still asks the buyer to authorize each checkout.</li>
-    </ol>
-    <p>A PayPal order is marked complete only after Till verifies the capture event and checks its amount against the decision.</p>
-  </div>
-</details>
-
 <div class="section-head">
   <h2>Order proposals</h2>
   <span class="count">{{ orders | length }} total</span>
