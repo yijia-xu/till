@@ -1,9 +1,9 @@
-"""Needs parsing. A model may judge fit and write an explanation.
+"""Needs judgment is an LLM call.
 
+The model says fit, unfit, or unsure, and writes the explanation.
 It cannot turn a BLOCK into an ALLOW, and it cannot call PayPal.
-When no API key is set, the deterministic matcher is the needs check.
-If a configured model is unavailable, the caller turns the needs check
-into NEED_APPROVAL while hard blocks stay blocks.
+If the model is not configured or the call fails, the needs check waits
+for a person. Hard blocks stay blocks.
 """
 
 from __future__ import annotations
@@ -63,59 +63,6 @@ def parse_sentence(sentence: str) -> FrozenNeeds:
         exclusions=exclusions,
         max_purchase_minor=money,
     )
-
-
-def _blob(listed: dict | None, claimed: dict | None) -> str:
-    parts: list[str] = []
-    for source in (listed, claimed):
-        if not source:
-            continue
-        for key in ("title", "sku", "category", "brand"):
-            value = source.get(key)
-            if value:
-                parts.append(str(value))
-    return " ".join(parts).lower()
-
-
-class DeterministicNeeds:
-    """Used when NEEDS_MODEL_API_KEY is empty. No network. No PayPal."""
-
-    def judge(self, policy: dict, claimed: dict, listed: dict | None) -> tuple[str, str]:
-        if listed is None:
-            return "unfit", "The catalog has no listing to compare with the request."
-        category = (policy.get("category") or "").strip().lower().replace(" ", "_")
-        if not category:
-            return "unsure", "The request does not name a category Till can freeze."
-        listed_category = str(listed.get("category") or "").strip().lower().replace(" ", "_")
-        title = str(listed.get("title") or "").lower()
-        if not listed_category:
-            return "unsure", "The listing has no category, so the needs check waits."
-        if listed_category != category and category not in title.replace(" ", "_"):
-            asked = category.replace("_", " ")
-            found = listed_category.replace("_", " ")
-            return "unfit", f"The shopper asked for {asked}. The listing is {found}."
-        size = policy.get("size")
-        if size:
-            listed_size = listed.get("size")
-            if not listed_size:
-                return "unsure", f"The shopper asked for size {size}, and the listing has no size."
-            if str(listed_size).strip() != str(size).strip():
-                return "unfit", f"The shopper asked for size {size}. The listing is size {listed_size}."
-        brand = policy.get("brand")
-        if brand:
-            listed_brand = listed.get("brand")
-            if not listed_brand:
-                return "unsure", f"The shopper asked for brand {brand}, and the listing has no brand."
-            if str(listed_brand).strip().lower() != str(brand).strip().lower():
-                return "unfit", f"The shopper asked for brand {brand}. The listing is {listed_brand}."
-        exclusions = [str(item).lower() for item in (policy.get("exclusions") or [])]
-        if policy.get("no_subscription") and "subscription" not in exclusions:
-            exclusions.append("subscription")
-        blob = _blob(listed, claimed)
-        for word in exclusions:
-            if word and (word in blob or (word == "subscription" and listed.get("subscription"))):
-                return "unfit", f"The shopper excluded {word}, and this listing matches that exclusion."
-        return "fit", "The listing matches the frozen category, size, brand, and exclusions."
 
 
 class ModelNeeds:
@@ -198,6 +145,10 @@ def combine_needs(verdict: Verdict, judgment: str, note: str) -> Verdict:
         )
         verdict.explanation = note or verdict.explanation
         return verdict
+    if judgment == "fit" and verdict.decision == "ALLOW":
+        if note:
+            verdict.explanation = f"{verdict.explanation} {note}".strip()
+        return verdict
     if judgment in {"unsure", "unavailable"}:
         verdict.decision = "NEED_APPROVAL"
         verdict.problem = "needs"
@@ -220,6 +171,5 @@ def combine_needs(verdict: Verdict, judgment: str, note: str) -> Verdict:
 
 
 def build_needs(api_key: str, url: str, model: str):
-    if api_key:
-        return ModelNeeds(url, api_key, model)
-    return DeterministicNeeds()
+    endpoint = url or "https://api.openai.com/v1/chat/completions"
+    return ModelNeeds(endpoint, api_key, model or "gpt-4o-mini")

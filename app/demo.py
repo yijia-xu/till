@@ -10,7 +10,7 @@ from .checkout import apply_webhook, fetch_order, open_db, submit_proposal
 from .config import load_settings
 from .db import init_db, reset_activity
 from .money import from_minor
-from .needs import DeterministicNeeds
+from .needs import build_needs
 from .paypal import PayPalClient
 
 
@@ -104,9 +104,13 @@ def main() -> None:
     settings = load_settings()
     init_db(path)
     reset_activity(path, settings.intent_ttl_seconds)
+    if not settings.needs_model_api_key:
+        print("Set NEEDS_MODEL_API_KEY. Needs judgment is an LLM call, not a string compare.")
+        raise SystemExit(1)
     paypal = PayPalClient("simulate", settings.paypal_base, "", "", "")
+    needs = build_needs(settings.needs_model_api_key, settings.needs_model_url, settings.needs_model_name)
     try:
-        rows = run_scenarios(path, paypal, DeterministicNeeds(), settings)
+        rows = run_scenarios(path, paypal, needs, settings)
     except AssertionError as exc:
         print(exc)
         raise SystemExit(1) from exc

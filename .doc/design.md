@@ -12,6 +12,8 @@ flowchart LR
   policy[Policy]
   store[Store]
   agent[ShoppingAgent]
+  http[HTTP]
+  mcp[MCP]
   till[Till]
   paypal[PayPalSandbox]
 
@@ -19,7 +21,10 @@ flowchart LR
   shopper --> till
   policy --> till
   store --> till
-  agent -->|submitAndQuery| till
+  agent --> http
+  agent --> mcp
+  http --> till
+  mcp --> till
   till -->|createReadCaptureVoid| paypal
   paypal -->|signedWebhook| till
 ```
@@ -53,16 +58,26 @@ sequenceDiagram
 
 Each proposal ends as `ALLOW`, `BLOCK`, or `NEED_APPROVAL`.
 
-Hard rules cover budget, tamper, and duplicates. The model may parse the shopper's words, judge whether the item fits, and write a short explanation. It cannot turn `BLOCK` into `ALLOW`, and it cannot call PayPal. If the model is down, hard rules still block, and a needs check becomes `NEED_APPROVAL`.
+Hard rules cover budget, tamper, duplicates, and the phase-two checks below. An LLM judges whether the listing fits what the shopper asked, and writes that explanation. It cannot turn `BLOCK` into `ALLOW`, and it cannot call PayPal. If the model is down or not configured, hard rules still block, and the needs check becomes `NEED_APPROVAL`.
 
 Amounts are integers in the smallest currency unit. Quantity times unit price, plus tax, shipping, and add-ons, must equal the total.
 
 ## First-version checks
 
 - **Budget.** Per purchase, per day, and per category, on the full total. Above the ask-me line, wait for a person.
-- **Needs.** Freeze the shopper's sentence into category, size, brand, and exclusions. Compare with title, SKU, and category. If unsure, wait.
+- **Needs.** An LLM compares the shopper's sentence with the listing and says fit, unfit, or unsure. Unfit blocks. Unsure waits for a person. This is not a string compare.
 - **Tamper.** Snapshot the listing before any PayPal call. Read the order again before capture. A change in price, SKU, quantity, currency, or total voids it.
 - **Duplicates.** One idempotency key pays once, enforced by a unique constraint in a single transaction. The same shopper, merchant, and SKU is also refused inside a time window. A captured PayPal order id cannot be paid again.
+
+## Phase-two checks
+
+These run in the same decision as the first-version checks, on both HTTP and MCP. They do not open a second way to pay.
+
+- **Intent.** The shopper creates an intent by saving a policy sentence. Till issues that intent. A proposal must cite an unexpired intent. The agent cannot create one. A missing, expired, or unknown intent is `BLOCK`.
+- **Subscription and protection plan.** A catalog line marked subscription or protection plan is not covered by an ordinary goods approval. It needs its own approval of that line. If the frozen policy excludes subscriptions, a subscription line is `BLOCK` instead of a request to approve.
+- **New merchant.** The first order from a merchant that is not on the shopper's allowlist is `NEED_APPROVAL`. "Allow this merchant from now on" is what adds the merchant to that list.
+- **Split and rapid charges.** Before the budget comparison, Till adds this proposal to the shopper's other non-rejected orders in a short window: the same intent, or the same merchant within 10 minutes. The sum is compared with the per-purchase cap and the daily cap. Over the cap is `BLOCK`. Each order still has its own idempotency key.
+- **Untrusted page text.** Listing copy and any note from the agent are data, not rules. "Ignore the budget" in a description does not change the policy. The model may only add a stricter block. A model result that would allow a hard-rule block is discarded. The order page notes that the instruction was ignored.
 
 ## Authority
 
@@ -82,8 +97,8 @@ A list, then one order:
 
 - **Approval.** Pending, approved, rejected, or blocked. Bound to the payload that was shown.
 - **Success.** Complete only after a verified webhook matches the amount.
-- **Where it failed.** Budget, needs, listing versus PayPal, duplicate, or webhook mismatch, with the four views and the total split into item, tax, shipping, and add-ons.
-- **Malicious or not.** A changed price, swapped item, changed quantity, edited approval, repeated capture, or webhook mismatch is malicious. Over budget, or a poor needs fit, is a policy block.
+- **Where it failed.** Budget, needs, listing versus PayPal, duplicate, webhook mismatch, missing intent, subscription or protection plan, new merchant, or combined charges. The page shows the four views and the total split into item, tax, shipping, and add-ons.
+- **Malicious or not.** A changed price, swapped item, changed quantity, edited approval, repeated capture, webhook mismatch, or a set of charges that evade the cap is malicious. An ignored "ignore the budget" instruction is shown with that order. Over budget, a poor needs fit, a missing intent, a new merchant, or a subscription that needs its own approval is a policy block.
 
 ## Learning
 
@@ -116,17 +131,18 @@ stateDiagram-v2
 
 ## Interfaces
 
-HTTP and MCP use the same checks. Neither can capture.
+HTTP and MCP call the same checkout functions. Neither can capture. The agent must not call PayPal directly.
 
-- **HTTP** in the first version, for the order page and our shopping agent.
-- **MCP** after that loop works. Tools are submit proposed order and get decision. Capture is not a tool.
-
-The agent must not call PayPal directly.
+- **HTTP**, used by the order page and our shopping agent. The agent submits a proposed order and reads status. Only a logged-in shopper can approve or reject.
+- **MCP**, phase two. Two tools:
+  - `submit_proposed_order` — catalog merchant id, line items, idempotency key, and intent id. Returns the decision id, status, and reason.
+  - `get_decision` — decision id. Returns the same status the order page shows, without PayPal secrets.
+  The agent authenticates with its own API key. That key cannot approve and cannot capture. A shopper still approves on the order page.
 
 ## Scope
 
 The first version is one real sandbox purchase, blocks for the four checks, a verified webhook, the order page, and one shopper choice that applies on the next order. The demo agent is ours: an honest $74 pair of shoes, then a changed price, a swapped item, a changed quantity, and a second charge for the same shoes.
 
-After that: refuse a payment with no intent; require separate approval for a subscription or protection plan; confirm the first order from a new merchant; add split orders and rapid small charges before the budget check; ignore product-page text that tries to change the rules; open the MCP door.
+Phase two adds the five checks above and the MCP door. The same demo can then show a missing intent, a protection plan, a first order from a new merchant, three small charges that together pass the cap, a listing that says to ignore the budget, and one MCP submit that receives the same block as HTTP.
 
 Till does not refund, answer disputes, fetch arbitrary merchant URLs, or train a fraud model. Stack: Python, FastAPI, SQLite.

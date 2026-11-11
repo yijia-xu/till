@@ -98,11 +98,13 @@ def parse_proposal(body: dict) -> tuple[dict, list[str]]:
 
 def active_policy(conn: sqlite3.Connection) -> tuple[int, dict]:
     row = conn.execute(
-        "SELECT version, rules_json FROM policies WHERE active = 1 ORDER BY version DESC LIMIT 1"
+        "SELECT version, raw_text, rules_json FROM policies WHERE active = 1 ORDER BY version DESC LIMIT 1"
     ).fetchone()
     if row is None:
         raise CheckoutError(409, "The shopper has no policy.")
-    return int(row["version"]), json.loads(row["rules_json"])
+    policy = json.loads(row["rules_json"])
+    policy["sentence"] = row["raw_text"]
+    return int(row["version"]), policy
 
 
 def find_listing(conn: sqlite3.Connection, merchant_id: str, sku: str) -> dict | None:

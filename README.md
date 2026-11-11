@@ -17,7 +17,7 @@ uvicorn app.main:app --reload
 
 Open http://127.0.0.1:8000 and sign in as `demo@till.local` / `demo`.
 
-`python -m app.demo` uses a fake PayPal client. It does not call PayPal and it does not need API keys. The honest order is a $74 pair of running shoes, size 9, under the $80 cap, with no subscription. Till would capture it, then a local verified webhook marks it complete. Changed price, swapped item, changed quantity, and a second charge for the same shoes are blocked.
+`python -m app.demo` uses a fake PayPal client. It does not call PayPal. Needs judgment does call an LLM: set `NEEDS_MODEL_API_KEY` in `.env`. The model says whether the listing fits the shopper's sentence. It cannot turn a hard block into an allow. If the key is missing or the model is down, that check waits for a person. The honest order is a $74 pair of running shoes, size 9, under the $80 cap, with no subscription. Till would capture it, then a local verified webhook marks it complete. Changed price, swapped item, changed quantity, and a second charge for the same shoes are blocked.
 
 The agent token in `.env.example` is `demo-agent-token`. The agent sends `POST /api/orders` and reads `GET /api/orders/{id}`. It has no PayPal credentials. Fields named `approved`, `user_id`, and `amount` grant nothing.
 

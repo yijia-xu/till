@@ -122,10 +122,6 @@ def apply_model(verdict: Verdict, model_decision: str | None) -> Verdict:
     return verdict
 
 
-def _norm(value: str | None) -> str:
-    return str(value or "").strip().lower().replace(" ", "_")
-
-
 def evaluate(
     *,
     policy: dict,
@@ -230,50 +226,6 @@ def evaluate(
                 kind="tamper",
                 is_malicious=True,
             )
-        exclusions = [str(item).lower() for item in (policy.get("exclusions") or [])]
-        if policy.get("no_subscription") and "subscription" not in exclusions:
-            exclusions.append("subscription")
-        blob = " ".join(
-            [
-                str(listed.get("title") or ""),
-                str(listed.get("sku") or ""),
-                str(listed.get("category") or ""),
-                str(listed.get("brand") or ""),
-            ]
-        ).lower()
-        for word in exclusions:
-            if word and (word in blob or (word == "subscription" and listed.get("subscription"))):
-                add(
-                    "needs_exclusion",
-                    f"The shopper excluded {word}. This listing matches that exclusion.",
-                    hard=True,
-                    kind="needs",
-                )
-        policy_category = _norm(policy.get("category"))
-        listed_category = _norm(listed.get("category"))
-        if policy_category and listed_category and policy_category != listed_category:
-            if policy_category not in _norm(listed.get("title")):
-                add(
-                    "needs_category",
-                    f"The shopper asked for {policy_category.replace('_', ' ')}. This listing is {listed_category.replace('_', ' ')}.",
-                    hard=True,
-                    kind="needs",
-                )
-        if policy.get("size") and listed.get("size") and str(listed["size"]).strip() != str(policy["size"]).strip():
-            add(
-                "needs_size",
-                f"The shopper asked for size {policy['size']}. This listing is size {listed['size']}.",
-                hard=True,
-                kind="needs",
-            )
-        if policy.get("brand") and listed.get("brand"):
-            if str(listed["brand"]).strip().lower() != str(policy["brand"]).strip().lower():
-                add(
-                    "needs_brand",
-                    f"The shopper asked for brand {policy['brand']}. This listing is {listed['brand']}.",
-                    hard=True,
-                    kind="needs",
-                )
 
     claimed_total = claimed.get("total_minor")
     computed_claim = unit * quantity + tax + shipping + addons
@@ -293,45 +245,6 @@ def evaluate(
             kind="duplicate",
             is_malicious=True,
         )
-
-    uncertain = False
-    if listed is not None:
-        if policy.get("category") and not listed.get("category"):
-            uncertain = True
-            reasons.append(
-                {
-                    "code": "needs_uncertain",
-                    "message": "The listing category is missing, so the needs check waits.",
-                    "hard": False,
-                }
-            )
-        if policy.get("size") and not listed.get("size"):
-            uncertain = True
-            reasons.append(
-                {
-                    "code": "needs_uncertain",
-                    "message": f"The shopper asked for size {policy['size']}, and the listing has no size.",
-                    "hard": False,
-                }
-            )
-        if policy.get("brand") and not listed.get("brand"):
-            uncertain = True
-            reasons.append(
-                {
-                    "code": "needs_uncertain",
-                    "message": f"The shopper asked for brand {policy['brand']}, and the listing has no brand.",
-                    "hard": False,
-                }
-            )
-        if not policy.get("category"):
-            uncertain = True
-            reasons.append(
-                {
-                    "code": "needs_uncertain",
-                    "message": "The shopper's sentence did not freeze a category.",
-                    "hard": False,
-                }
-            )
 
     max_purchase = int(policy["max_purchase_minor"])
     daily_max = int(policy["daily_max_minor"])
@@ -378,10 +291,10 @@ def evaluate(
 
     if hard_block:
         decision = "BLOCK"
-    elif uncertain or ask_wait:
+    elif ask_wait:
         decision = "NEED_APPROVAL"
         if problem is None:
-            problem = "needs" if uncertain else "approval"
+            problem = "approval"
     else:
         decision = "ALLOW"
         problem = None
@@ -389,8 +302,7 @@ def evaluate(
     bits = [reason["message"] for reason in reasons if reason["hard"] or decision != "ALLOW"]
     if decision == "ALLOW":
         explanation = (
-            f"The full total {from_minor(payable)} {listed_currency if listed else currency} "
-            "is inside the caps, and the listing matches the request."
+            f"The full total {from_minor(payable)} {listed_currency if listed else currency} is inside the caps."
         )
     elif decision == "NEED_APPROVAL":
         explanation = "A person needs to approve this exact amount, SKU, quantity, currency, and address."
