@@ -69,6 +69,8 @@ class PayPalClient:
         sku: str,
         quantity: int,
         request_id: str,
+        return_url: str | None = None,
+        cancel_url: str | None = None,
     ) -> dict:
         self.calls.append(("create", custom_id, request_id))
         if self.mode == "simulate" and request_id in self._by_request:
@@ -106,6 +108,17 @@ class PayPalClient:
                 }
             ],
         }
+        if return_url and cancel_url:
+            body["payment_source"] = {
+                "paypal": {
+                    "experience_context": {
+                        "return_url": return_url,
+                        "cancel_url": cancel_url,
+                        "user_action": "PAY_NOW",
+                        "shipping_preference": "SET_PROVIDED_ADDRESS",
+                    }
+                }
+            }
         if self.mode == "simulate":
             order_id = "SIM" + uuid.uuid4().hex[:14].upper()
             order = {"id": order_id, "status": "APPROVED", **body}

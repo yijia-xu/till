@@ -19,7 +19,7 @@ from .paypal import (
     paypal_order_id_of,
 )
 
-OPEN_STATES = {"Approved", "OrderCreated", "CaptureSubmitted"}
+OPEN_STATES = {"Approved", "OrderCreated", "PayerAction", "CaptureSubmitted"}
 
 
 class CheckoutError(Exception):
@@ -370,7 +370,17 @@ def insert_decision(
     return order_id
 
 
-def submit_proposal(conn, paypal, needs, body: dict, *, shopper_id: str = SHOPPER_ID, window_seconds: int, approval_ttl_seconds: int) -> dict:
+def submit_proposal(
+    conn,
+    paypal,
+    needs,
+    body: dict,
+    *,
+    shopper_id: str = SHOPPER_ID,
+    window_seconds: int,
+    approval_ttl_seconds: int,
+    public_base_url: str = "",
+) -> dict:
     claim, ignored = parse_proposal(body)
     fingerprint = claim_fingerprint(claim)
     replay_id = None
@@ -402,11 +412,11 @@ def submit_proposal(conn, paypal, needs, body: dict, *, shopper_id: str = SHOPPE
     if replay_id is not None:
         order = fetch_order(conn, replay_id)
         if order and order["status"] == "Approved":
-            return start_payment(conn, paypal, replay_id)
+            return start_payment(conn, paypal, replay_id, public_base_url=public_base_url)
         return order
     order = fetch_order(conn, order_id)
     if order["status"] == "Approved":
-        return start_payment(conn, paypal, order_id)
+        return start_payment(conn, paypal, order_id, public_base_url=public_base_url)
     return order
 
 
@@ -436,15 +446,20 @@ def _expire_approval(conn, order: dict, *, malicious: bool, message: str) -> dic
     return fetch_order(conn, order["id"])
 
 
-def start_payment(conn, paypal, order_id: str) -> dict:
+def start_payment(conn, paypal, order_id: str, *, public_base_url: str = "") -> dict:
     order = fetch_order(conn, order_id)
     if order is None:
         raise CheckoutError(404, "Order not found.")
     if order["status"] in {"CaptureSubmitted", "Complete", "Blocked", "Rejected", "Incident", "NeedsApproval"}:
         return order
-    if order["status"] not in {"Approved", "OrderCreated"}:
+    if order["status"] not in {"Approved", "OrderCreated", "PayerAction"}:
         return order
     if order["approval_expires_at"] and order["approval_expires_at"] < utcnow():
+        if order.get("paypal_order_id"):
+            try:
+                paypal.void(order["paypal_order_id"])
+            except PayPalError:
+                pass
         return _expire_approval(conn, order, malicious=False, message="The approval expired before Till talked to PayPal.")
     if order["approved_hash"] != order["approval_hash"] or current_approval_hash(order) != order["approval_hash"]:
         return _expire_approval(
@@ -461,8 +476,10 @@ def start_payment(conn, paypal, order_id: str) -> dict:
     if listed is None:
         return order
     request_id = order["id"]
+    approve_url = order.get("approve_url") or ""
     try:
         if not order["paypal_order_id"]:
+            base_url = public_base_url.rstrip("/")
             created = paypal.create_order(
                 custom_id=order["id"],
                 currency=order["currency"],
@@ -475,9 +492,25 @@ def start_payment(conn, paypal, order_id: str) -> dict:
                 sku=listed["sku"],
                 quantity=int(claimed["quantity"]),
                 request_id=request_id,
+                return_url=f"{base_url}/paypal/return?decision_id={order['id']}" if base_url else None,
+                cancel_url=f"{base_url}/paypal/cancel?decision_id={order['id']}" if base_url else None,
             )
             paypal_order_id = created["id"]
-            save_order(conn, order["id"], paypal_order_id=paypal_order_id, status="OrderCreated")
+            approve_url = next(
+                (
+                    link.get("href")
+                    for link in created.get("links", [])
+                    if link.get("rel") in {"payer-action", "approve"} and link.get("href")
+                ),
+                "",
+            )
+            save_order(
+                conn,
+                order["id"],
+                paypal_order_id=paypal_order_id,
+                approve_url=approve_url,
+                status="OrderCreated",
+            )
             audit(conn, order["id"], "payment_created", "Till created a PayPal order.", paypal_order_id=paypal_order_id)
         else:
             paypal_order_id = order["paypal_order_id"]
@@ -556,6 +589,34 @@ def start_payment(conn, paypal, order_id: str) -> dict:
         )
         audit(conn, order["id"], "voided", message)
         return fetch_order(conn, order["id"])
+
+    if str(remote.get("status") or "").upper() != "APPROVED":
+        approve_url = approve_url or next(
+            (
+                link.get("href")
+                for link in remote.get("links", [])
+                if link.get("rel") in {"payer-action", "approve"} and link.get("href")
+            ),
+            "",
+        )
+        if not approve_url:
+            message = "PayPal has not approved this order and returned no buyer approval link. Till did not capture."
+            save_order(conn, order["id"], status="Incident", problem="paypal", explanation=message)
+            audit(conn, order["id"], "approval_link_missing", message)
+            return fetch_order(conn, order["id"])
+        was_waiting = order["status"] == "PayerAction"
+        save_order(
+            conn,
+            order["id"],
+            status="PayerAction",
+            approve_url=approve_url,
+            explanation="Till approved this order. PayPal buyer approval is still required before capture.",
+        )
+        if not was_waiting:
+            audit(conn, order["id"], "payer_action_required", "PayPal requires the buyer to approve this order before capture.")
+        return fetch_order(conn, order["id"])
+
+    save_order(conn, order["id"], approve_url="")
 
     try:
         capture = paypal.capture(paypal_order_id, request_id)
@@ -642,7 +703,7 @@ def _paypal_mismatch(order: dict, listed: dict, claimed: dict, line: dict) -> st
     return None
 
 
-def approve_order(conn, paypal, order_id: str, shopper_id: str) -> dict:
+def approve_order(conn, paypal, order_id: str, shopper_id: str, *, public_base_url: str = "") -> dict:
     order = fetch_order(conn, order_id)
     if order is None or order["shopper_id"] != shopper_id:
         raise CheckoutError(404, "Order not found.")
@@ -667,7 +728,53 @@ def approve_order(conn, paypal, order_id: str, shopper_id: str) -> dict:
         approved_hash=order["approval_hash"],
     )
     audit(conn, order_id, "shopper_approved", "The shopper approved this exact payload.")
+    return start_payment(conn, paypal, order_id, public_base_url=public_base_url)
+
+
+def resume_paypal_approval(conn, paypal, order_id: str, paypal_order_id: str) -> dict:
+    order = fetch_order(conn, order_id)
+    if order is None or order.get("paypal_order_id") != paypal_order_id:
+        raise CheckoutError(404, "PayPal order not found for this Till decision.")
+    if order["status"] in {"CaptureSubmitted", "Complete"}:
+        return order
+    if order["status"] != "PayerAction":
+        raise CheckoutError(409, "This Till order is not waiting for PayPal approval.")
+    if order["approval_expires_at"] and order["approval_expires_at"] < utcnow():
+        try:
+            paypal.void(paypal_order_id)
+        except PayPalError:
+            pass
+        return _expire_approval(conn, order, malicious=False, message="The approval expired before PayPal buyer approval.")
+    if order["approved_hash"] != order["approval_hash"] or current_approval_hash(order) != order["approval_hash"]:
+        try:
+            paypal.void(paypal_order_id)
+        except PayPalError:
+            pass
+        return _expire_approval(
+            conn,
+            order,
+            malicious=True,
+            message="The amount, SKU, quantity, currency, or address changed before PayPal buyer approval.",
+        )
     return start_payment(conn, paypal, order_id)
+
+
+def cancel_paypal_approval(conn, paypal, order_id: str, paypal_order_id: str) -> dict:
+    order = fetch_order(conn, order_id)
+    if order is None or order.get("paypal_order_id") != paypal_order_id:
+        raise CheckoutError(404, "PayPal order not found for this Till decision.")
+    if order["status"] in {"CaptureSubmitted", "Complete"}:
+        return order
+    if order["status"] != "PayerAction":
+        raise CheckoutError(409, "This Till order is not waiting for PayPal approval.")
+    try:
+        paypal.void(paypal_order_id)
+    except PayPalError:
+        pass
+    message = "The shopper canceled PayPal checkout. Till did not capture the order."
+    save_order(conn, order_id, status="Rejected", approval_status="rejected", approve_url="", explanation=message)
+    audit(conn, order_id, "paypal_checkout_canceled", message)
+    return fetch_order(conn, order_id)
 
 
 def reject_order(conn, order_id: str, shopper_id: str) -> dict:
@@ -923,6 +1030,7 @@ def present_order(conn, order: dict) -> dict:
         "currency": order["currency"],
         "address": order["address"],
         "paypal_order_id": order["paypal_order_id"],
+        "approve_url": order.get("approve_url"),
         "policy_version": order["policy_version"],
         "merchant_id": order["merchant_id"],
         "sku": order["sku"],
@@ -959,6 +1067,7 @@ def agent_view(order: dict) -> dict:
         "payable_minor": view["payable_minor"],
         "currency": view["currency"],
         "paypal_order_id": view["paypal_order_id"],
+        "approve_url": view["approve_url"],
         "policy_version": view["policy_version"],
         "success": view["success"],
         "reasons": [{"code": reason["code"], "message": reason["message"]} for reason in view["reasons"]],

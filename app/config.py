@@ -5,6 +5,11 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -13,6 +18,7 @@ class Settings:
     paypal_client_secret: str
     paypal_webhook_id: str
     paypal_base: str
+    public_base_url: str
     db_path: str
     agent_token: str
     simulator_token: str
@@ -38,6 +44,7 @@ def load_settings() -> Settings:
         paypal_client_secret=text("PAYPAL_CLIENT_SECRET"),
         paypal_webhook_id=text("PAYPAL_WEBHOOK_ID"),
         paypal_base=text("PAYPAL_BASE", "https://api-m.sandbox.paypal.com"),
+        public_base_url=text("TILL_PUBLIC_BASE_URL", "http://127.0.0.1:8000").rstrip("/"),
         db_path=text("TILL_DB", "till.db"),
         agent_token=text("TILL_AGENT_TOKEN", "demo-agent-token"),
         simulator_token=text("TILL_SIMULATOR_TOKEN", "demo-simulator-token"),

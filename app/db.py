@@ -14,7 +14,7 @@ SHOPPER_ID = "shopper_demo"
 SHOPPER_EMAIL = "demo@till.local"
 SHOPPER_PASSWORD = "demo"
 
-PAID_STATUSES = ("Approved", "OrderCreated", "CaptureSubmitted", "Complete")
+PAID_STATUSES = ("Approved", "OrderCreated", "PayerAction", "CaptureSubmitted", "Complete")
 
 
 def utcnow() -> str:

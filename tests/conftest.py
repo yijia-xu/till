@@ -53,6 +53,7 @@ def settings(tmp_path):
         paypal_client_secret="",
         paypal_webhook_id="wh_test",
         paypal_base="https://api-m.sandbox.paypal.com",
+        public_base_url="http://127.0.0.1:8000",
         db_path=str(tmp_path / "till.db"),
         agent_token="test-agent",
         simulator_token="test-sim",

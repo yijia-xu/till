@@ -39,6 +39,9 @@
     {% elif order.status == "CaptureSubmitted" %}
     <p><span class="badge wait">Not yet</span></p>
     <p>Capture was sent. An order id alone is not completion.</p>
+    {% elif order.status == "PayerAction" %}
+    <p><span class="badge wait">PayPal approval required</span></p>
+    <p>Till approved this exact order under policy. PayPal still needs the buyer to authorize the payment before Till captures it.</p>
     {% else %}
     <p><span class="badge neutral">Not complete</span></p>
     {% endif %}
@@ -161,6 +164,12 @@
     <button type="submit">Reject this order</button>
   </form>
 </div>
+{% endif %}
+
+{% if order.status == "PayerAction" and order.approve_url %}
+<h2>Continue checkout</h2>
+<p>Review the same item and total on PayPal. Till captures only after PayPal returns an approved order.</p>
+<p><a class="button" href="{{ order.approve_url }}">Continue to PayPal</a></p>
 {% endif %}
 
 <h2>Remember for later</h2>

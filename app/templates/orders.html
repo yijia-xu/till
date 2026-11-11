@@ -30,6 +30,7 @@
       <td>
         {% if order.status == "Complete" %}<span class="badge ok">Complete</span>
         {% elif order.status == "CaptureSubmitted" %}<span class="badge wait">Capture sent</span>
+        {% elif order.status == "PayerAction" %}<span class="badge wait">PayPal approval</span>
         {% elif order.status == "NeedsApproval" %}<span class="badge wait">Needs approval</span>
         {% elif order.status == "Rejected" %}<span class="badge neutral">Rejected</span>
         {% elif order.status == "Incident" %}<span class="badge malicious">Incident</span>

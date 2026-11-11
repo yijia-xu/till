@@ -16,12 +16,14 @@ from .checkout import (
     agent_view,
     apply_webhook,
     approve_order,
+    cancel_paypal_approval,
     fetch_order,
     learn_rule,
     list_orders,
     open_db,
     present_order,
     reject_order,
+    resume_paypal_approval,
     save_policy,
     submit_proposal,
 )
@@ -90,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 body,
                 window_seconds=settings.duplicate_window_seconds,
                 approval_ttl_seconds=settings.approval_ttl_seconds,
+                public_base_url=settings.public_base_url,
             )
             return agent_view(present_order(conn, order))
         except CheckoutError as exc:
@@ -129,6 +132,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(401, "Simulator token required.")
         raw = await request.body()
         return _accept_event(raw, verified=True)
+
+    @app.get("/paypal/return")
+    def paypal_return(decision_id: str, token: str = ""):
+        conn = open_db(settings.db_path)
+        try:
+            try:
+                resume_paypal_approval(conn, app.state.paypal, decision_id, token)
+            except CheckoutError as exc:
+                return RedirectResponse(f"/orders/{decision_id}?error={quote(exc.detail)}", status_code=303)
+        finally:
+            conn.close()
+        return RedirectResponse(f"/orders/{decision_id}", status_code=303)
+
+    @app.get("/paypal/cancel")
+    def paypal_cancel(decision_id: str, token: str = ""):
+        conn = open_db(settings.db_path)
+        try:
+            try:
+                cancel_paypal_approval(conn, app.state.paypal, decision_id, token)
+            except CheckoutError as exc:
+                return RedirectResponse(f"/orders/{decision_id}?error={quote(exc.detail)}", status_code=303)
+        finally:
+            conn.close()
+        return RedirectResponse(f"/orders/{decision_id}", status_code=303)
 
     def _accept_event(raw: bytes, *, verified: bool):
         import json
@@ -328,7 +355,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return RedirectResponse("/login", status_code=303)
             try:
                 if action == "approve":
-                    approve_order(conn, app.state.paypal, order_id, shopper)
+                    approved = approve_order(
+                        conn,
+                        app.state.paypal,
+                        order_id,
+                        shopper,
+                        public_base_url=settings.public_base_url,
+                    )
                 elif action == "reject":
                     reject_order(conn, order_id, shopper)
                 else:
@@ -339,6 +372,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             conn.close()
         if action == "learn":
             return RedirectResponse(f"/orders/{order_id}?learned={quote(kind)}", status_code=303)
+        if action == "approve" and approved.get("approve_url"):
+            return RedirectResponse(approved["approve_url"], status_code=303)
         return RedirectResponse(f"/orders/{order_id}", status_code=303)
 
     def _require_agent(request: Request) -> None:
@@ -370,6 +405,8 @@ def _where(view: dict) -> str:
         return "It did not fail. A verified webhook matched the currency and amount."
     if view["status"] == "CaptureSubmitted":
         return "Till submitted the capture. This is not complete until a verified webhook matches."
+    if view["status"] == "PayerAction":
+        return "Till approved this order. PayPal buyer approval is still required before capture."
     if view["status"] == "NeedsApproval":
         return "Till is waiting for you to approve this exact amount, SKU, quantity, currency, and address."
     if view["status"] == "Rejected":
