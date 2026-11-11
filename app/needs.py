@@ -1,4 +1,4 @@
-"""Needs judgment is an LLM call.
+"""Needs judgment uses Gemini.
 
 The model says fit, unfit, or unsure, and writes the explanation.
 It cannot turn a BLOCK into an ALLOW, and it cannot call PayPal.
@@ -8,13 +8,11 @@ for a person. Hard blocks stay blocks.
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 
-import httpx
-
 from .engine import Verdict
+from .gemini import GeminiAPIError, generate_json
 from .money import to_minor
 
 
@@ -95,30 +93,19 @@ class ModelNeeds:
             },
         }
         try:
-            response = httpx.post(
-                self.url,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "Judge whether the listing fits the shopper need. "
-                                "Reply with JSON only: "
-                                '{"judgment":"fit|unfit|unsure","explanation":"short"}. '
-                                "You cannot approve a payment, lift a hard block, or call PayPal."
-                            ),
-                        },
-                        {"role": "user", "content": json.dumps(prompt)},
-                    ],
-                },
-                timeout=8.0,
+            parsed = generate_json(
+                api_key=self.api_key,
+                base_url=self.url,
+                model=self.model,
+                system_instruction=(
+                    "Judge whether the listing fits the shopper need. "
+                    'Return JSON only: {"judgment":"fit|unfit|unsure","explanation":"short"}. '
+                    "You cannot approve a payment, lift a hard block, or call PayPal."
+                ),
+                payload=prompt,
+                timeout=30.0,
             )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-            parsed = json.loads(content)
-        except Exception as exc:
+        except GeminiAPIError as exc:
             raise NeedsUnavailable("The needs model is unavailable.") from exc
         raw = str(parsed.get("judgment") or "").strip().lower()
         judgment = {"fit": "fit", "unfit": "unfit", "unsure": "unsure"}.get(raw, "unsure")
@@ -171,5 +158,5 @@ def combine_needs(verdict: Verdict, judgment: str, note: str) -> Verdict:
 
 
 def build_needs(api_key: str, url: str, model: str):
-    endpoint = url or "https://api.openai.com/v1/chat/completions"
-    return ModelNeeds(endpoint, api_key, model or "gpt-4o-mini")
+    endpoint = url or "https://generativelanguage.googleapis.com/v1beta/models"
+    return ModelNeeds(endpoint, api_key, model or "gemini-3.8-flash")

@@ -61,11 +61,27 @@
       </div>
       <div class="actions">
         <button class="primary" type="submit">Save shopping request</button>
-        <button type="submit" formaction="/shopping/agent" {% if not shopping_ai_configured %}disabled aria-describedby="ai-setup-note"{% endif %}>Find a match with AI</button>
+        <button id="find-ai-match" type="submit" formaction="/shopping/agent" {% if not shopping_ai_configured %}disabled aria-describedby="ai-setup-note"{% endif %}>Find a match with AI</button>
       </div>
-      {% if not shopping_ai_configured %}<p id="ai-setup-note" class="field-help">Add <code>NEEDS_MODEL_API_KEY</code> to <code>.env</code> to enable AI shopping and order needs checks.</p>{% endif %}
+      <p id="ai-progress" class="field-help" role="status" hidden>Till is matching a catalog item, checking your rules, and may create a PayPal Sandbox order if allowed. Keep this tab open while it works.</p>
+      <p id="ai-slow" class="alert" role="status" hidden>This is taking longer than expected. Check the terminal running Till for an error. Avoid submitting again while the request may still be running.</p>
+      {% if not shopping_ai_configured %}<p id="ai-setup-note" class="field-help">Set <code>NEEDS_MODEL_API_KEY</code> in the environment where Till is running, then restart or redeploy Till to enable AI shopping and order needs checks.</p>{% endif %}
     </section>
   </form>
 </section>
+
+<script>
+  const shoppingForm = document.querySelector(".chat-shell form");
+  shoppingForm?.addEventListener("submit", (event) => {
+    if (event.submitter?.id !== "find-ai-match") return;
+    const progress = document.getElementById("ai-progress");
+    progress.hidden = false;
+    event.submitter.disabled = true;
+    event.submitter.textContent = "Finding a match…";
+    window.setTimeout(() => {
+      document.getElementById("ai-slow").hidden = false;
+    }, 75000);
+  });
+</script>
 
 {% endblock %}

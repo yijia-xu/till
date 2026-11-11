@@ -16,7 +16,7 @@
 <p class="banner" role="status"><strong>PayPal Sandbox connected.</strong> Checkout uses PayPal test accounts and does not move live money.</p>
 {% endif %}
 {% if not needs_model_configured %}
-<p class="alert" role="status"><strong>AI needs check is not configured.</strong> Proposals that need a needs judgment will wait for your review. Add <code>NEEDS_MODEL_API_KEY</code> to <code>.env</code> to enable it.</p>
+<p class="alert" role="status"><strong>Gemini needs check is not configured.</strong> Proposals that need a needs judgment will wait for your review. Add a Gemini API key as <code>NEEDS_MODEL_API_KEY</code> where Till is running to enable it.</p>
 {% endif %}
 
 <details class="how-it-works" {% if not orders %}open{% endif %}>

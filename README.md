@@ -22,7 +22,7 @@ Open http://127.0.0.1:8000 and sign in as `demo@till.local` / `demo`.
 Till is a payment safety desk for a shopping agent. Its AI can match a request against Till's demo catalog, then sends a proposed order through Till's checks. Till decides whether to allow it, block it, or ask the shopper to review it. It does not search the open web or connect to merchant inventory feeds.
 
 1. Open **Shopping**, describe the item, set the per-order, per-day, category, and ask-above amounts, and enter a delivery address. The caps are hard limits; ask-above only adds a review step below those limits.
-2. Add an OpenAI API key as `NEEDS_MODEL_API_KEY` in `.env`. **Find a match with AI** asks the shopping agent to choose from Till's local demo catalog. It cannot invent products or prices. The same key powers the separate needs check during checkout.
+2. Add a Gemini API key from Google AI Studio as `NEEDS_MODEL_API_KEY` in `.env`. **Find a match with AI** asks the shopping agent to choose from Till's local demo catalog. It cannot invent products or prices. The same key powers the separate needs check during checkout.
 3. For an external agent, use the API token to submit proposals to `POST /api/orders`. The agent can read the decision but has no PayPal credentials and cannot approve or capture a payment.
 4. Open **Orders** to review proposals. Open an order to see the shopper request, agent proposal, catalog snapshot, and PayPal order. Approve or decline proposals that need your review.
 5. For a sandbox payment, continue to PayPal and sign in with a sandbox personal test account to authorize it. Till captures only after the buyer returns and PayPal confirms authorization. A completed payment is confirmed by a verified webhook.

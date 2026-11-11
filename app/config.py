@@ -52,6 +52,6 @@ def load_settings() -> Settings:
         approval_ttl_seconds=whole("TILL_APPROVAL_TTL_SECONDS", 900),
         intent_ttl_seconds=whole("TILL_INTENT_TTL_SECONDS", 604800),
         needs_model_api_key=text("NEEDS_MODEL_API_KEY"),
-        needs_model_url=text("NEEDS_MODEL_URL"),
-        needs_model_name=text("NEEDS_MODEL_NAME", "gpt-4o-mini"),
+        needs_model_url=text("NEEDS_MODEL_URL", "https://generativelanguage.googleapis.com/v1beta/models"),
+        needs_model_name=text("NEEDS_MODEL_NAME", "gemini-3.8-flash"),
     )
